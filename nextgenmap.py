@@ -3,7 +3,8 @@ import os
 import tempfile
 import subprocess
 import psutil
-from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog
+import re
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog, QComboBox
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from PyQt6.uic import loadUi
@@ -49,6 +50,114 @@ class NmapScanThread(QThread):
                 child_proc.kill()
             process.kill()
 
+class SchedulerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        loadUi('scheduler_dialog.ui', self)
+        self.updating_cron_schedule = False
+        self.toggling_custom_radio = False
+        self.init_ui()
+
+    def init_ui(self):
+        self.min_cbox.insertItem(0, "Min")
+        self.min_cbox.addItems([str(i) for i in range(0, 60)])
+        self.hour_cbox.insertItem(0, "Hour")
+        self.hour_cbox.addItems([str(i) for i in range(0, 24)])
+        self.date_cbox.insertItem(0, "Date")
+        self.date_cbox.addItems([str(i) for i in range(1, 32)])
+        self.month_cbox.insertItem(0, "Month")
+        self.month_cbox.addItems(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Nov", "Dec"])
+        self.day_cbox.insertItem(0, "Day")
+        self.day_cbox.addItems(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])
+        
+        self.hourly_radio.toggled.connect(self.update_cron_schedule)
+        self.daily_radio.toggled.connect(self.update_cron_schedule)
+        self.weekly_radio.toggled.connect(self.update_cron_schedule)
+        self.custom_radio.toggled.connect(self.update_cron_schedule)
+        self.min_cbox.currentIndexChanged.connect(self.update_cron_schedule)
+        self.hour_cbox.currentIndexChanged.connect(self.update_cron_schedule)
+        self.date_cbox.currentIndexChanged.connect(self.update_cron_schedule)
+        self.month_cbox.currentIndexChanged.connect(self.update_cron_schedule)
+        self.day_cbox.currentIndexChanged.connect(self.update_cron_schedule)
+        self.cron_schedule.textChanged.connect(self.parse_cron_schedule)
+        self.update_cron_schedule()
+
+    def parse_cron_schedule(self):
+        if self.updating_cron_schedule:
+            return
+
+        cron_text = self.cron_schedule.toPlainText().strip()
+        cron_pattern = re.compile(r'^(\*|\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)( (\*|\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)){4}$')
+        if not cron_pattern.match(cron_text):
+            return
+
+        # Toggle custom radio button if not already checked
+        if self.sender() and self.sender().hasFocus():
+            self.toggling_custom_radio = True
+            self.custom_radio.setChecked(True)
+            self.toggling_custom_radio = False
+            return
+
+        minute, hour, date, month, day = cron_text.split()
+
+        self.min_cbox.setCurrentIndex(int(minute)+1 if minute.isdigit() else 0)
+        self.hour_cbox.setCurrentIndex(int(hour)+1 if hour.isdigit() else 0)
+        self.date_cbox.setCurrentIndex(int(date)+1 if date.isdigit() else 0)
+        self.month_cbox.setCurrentIndex(int(month)+1 if month.isdigit() else 0)
+        self.day_cbox.setCurrentIndex(int(day)+1 if day.isdigit() else 0)
+
+        self.min_cbox.setEnabled(',' not in minute and '/' not in minute and '-' not in minute)
+        self.hour_cbox.setEnabled(',' not in hour and '/' not in hour and '-' not in hour)
+        self.date_cbox.setEnabled(',' not in date and '/' not in date and '-' not in date)
+        self.month_cbox.setEnabled(',' not in month and '/' not in month and '-' not in month)
+        self.day_cbox.setEnabled(',' not in day and '/' not in day and '-' not in day)
+
+
+    def update_cron_schedule(self):
+        # Return early if the sender is the QLineEdit cron_schedule or if toggling custom_radio due to parse_cron_schedule
+        if self.sender() == self.cron_schedule or self.toggling_custom_radio:
+            return
+        
+        self.updating_cron_schedule = True
+
+        # Set the enabled state of the ComboBoxes based on the checked radio button
+        is_custom = self.custom_radio.isChecked()
+        self.min_cbox.setEnabled(True)
+        self.hour_cbox.setEnabled(is_custom or self.daily_radio.isChecked() or self.weekly_radio.isChecked())
+        self.date_cbox.setEnabled(is_custom)
+        self.month_cbox.setEnabled(is_custom)
+        self.day_cbox.setEnabled(is_custom or self.weekly_radio.isChecked())
+        
+        # Set current index to 0 for disabled QComboBox widgets
+        for cb in [self.min_cbox, self.hour_cbox, self.date_cbox, self.month_cbox, self.day_cbox]:
+            if not cb.isEnabled():
+                cb.setCurrentIndex(0)
+        
+        # Update the cron expression
+        minute = self.min_cbox.currentText() if self.min_cbox.currentText() != "Min" else "*"
+        hour = self.hour_cbox.currentText() if self.hour_cbox.currentText() != "Hour" else "*"
+        date = self.date_cbox.currentText() if is_custom and self.date_cbox.currentText() != "Date" else "*"
+        month = str(self.month_cbox.currentIndex()) if is_custom and self.month_cbox.currentText() != "Month" else "*"
+        day = str(self.day_cbox.currentIndex() - 1) if (is_custom or self.weekly_radio.isChecked()) and self.day_cbox.currentText() != "Day" else "*"
+        
+        if self.hourly_radio.isChecked():
+            minute = "0" if minute == "*" else minute
+            self.cron_schedule.setPlainText(f"{minute} * * * *")
+        elif self.daily_radio.isChecked():
+            minute = "0" if minute == "*" else minute
+            hour = "12" if hour == "*" else hour
+            self.cron_schedule.setPlainText(f"{minute} {hour} * * *")
+        elif self.weekly_radio.isChecked():
+            minute = "0" if minute == "*" else minute
+            hour = "12" if hour == "*" else hour
+            day = "0" if day == "*" else day
+            self.cron_schedule.setPlainText(f"{minute} {hour} * * {day}")
+        else:
+            cron_expression = f"{minute} {hour} {date} {month} {day}"
+            self.cron_schedule.setPlainText(cron_expression)
+
+        self.updating_cron_schedule = False
+
 class NextGeNmapGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -56,8 +165,8 @@ class NextGeNmapGUI(QMainWindow):
         self.init_ui()
         self.nm = None
         self.scan_thread = None
+        self.scheduler_dialog = SchedulerDialog(self)
         self.statusbar.showMessage("Status: Idle")
-        loadUi('scheduler_dialog.ui', self.scheduler_dialog)
 
     def init_ui(self):
         self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", "Intense Comprehensive Scan",
@@ -73,7 +182,6 @@ class NextGeNmapGUI(QMainWindow):
         self.profile_combobox.currentIndexChanged.connect(self.update_command)
         self.vuln_scripts_combobox.currentIndexChanged.connect(self.update_command)
         self.schedule_button.clicked.connect(self.show_scheduler)
-        self.scheduler_dialog = QDialog(self)
 
     def show_scheduler(self):
         self.scheduler_dialog.exec()
