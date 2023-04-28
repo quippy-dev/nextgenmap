@@ -146,7 +146,7 @@ class NextGeNmapGUI(QMainWindow):
         vuln_scripts = {
             "None": "",
             "vulners": " -sV --script vulners --script-args mincvss=7.5",
-            "vulscan": " -sV --script ./scripts/vulscan.nse",
+            "vulscan": " -sV --script ./scripts/vulscan/vulscan.nse",
             "httprecon": " -sV --script ./scripts/http-recon.nse"
         }
         
