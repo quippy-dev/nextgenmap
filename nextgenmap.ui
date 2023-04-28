@@ -32,7 +32,7 @@
       <item row="1" column="9">
        <widget class="QPushButton" name="schedule_button">
         <property name="text">
-         <string>Schedule Scans</string>
+         <string>Schedule</string>
         </property>
        </widget>
       </item>
@@ -53,6 +53,9 @@
             <width>871</width>
             <height>441</height>
            </rect>
+          </property>
+          <property name="readOnly">
+           <bool>true</bool>
           </property>
          </widget>
         </widget>
