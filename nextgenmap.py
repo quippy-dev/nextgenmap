@@ -3,11 +3,10 @@ import os
 import tempfile
 import subprocess
 import psutil
-from nextgenmap_ui import Ui_MainWindow
-from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
-import nmap
+from PyQt6.uic import loadUi
 from nmap import PortScanner, PortScannerError
 
 class NmapScanThread(QThread):
@@ -49,17 +48,21 @@ class NmapScanThread(QThread):
                 child_proc.kill()
             process.kill()
 
-class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
+class NextGeNmapGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        loadUi('nextgenmap.ui', self)
+        self.init_ui()
         self.nm = None
         self.scan_thread = None
-        self.setupUi(self)
-        self.init_ui()
+        self.statusbar.showMessage("Status: Idle")
+        loadUi('scheduler_dialog.ui', self.scheduler_dialog)
 
     def init_ui(self):
-        self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", "Vulnerability Scan (Vulscan)", "Intense Comprehensive Scan",
+        self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", "Intense Comprehensive Scan",
                                         "Quick scan plus", "Quick traceroute", "Regular scan", "Slow comprehensive scan", "TCP SYN Scan", "UDP SYN Scan", "Intense Scan, no Ping, Agressive"])
+        self.vuln_scripts_combobox.addItems(["None", "vulners", "vulscan", "httprecon"])
+        self.update_command()
         self.scan_button.clicked.connect(self.start_scan)
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel_scan)
@@ -67,7 +70,12 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
         self.target_entry.textChanged.connect(self.update_target)
         self.command_entry.textChanged.connect(self.update_target_from_command)
         self.profile_combobox.currentIndexChanged.connect(self.update_command)
-        self.update_command()
+        self.vuln_scripts_combobox.currentIndexChanged.connect(self.update_command)
+        self.schedule_button.clicked.connect(self.show_scheduler)
+        self.scheduler_dialog = QDialog(self)
+
+    def show_scheduler(self):
+        self.scheduler_dialog.exec()
 
     def start_scan(self):
         if self.scan_thread and self.scan_thread.isRunning():
@@ -91,6 +99,7 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
         self.scan_thread.scan_error.connect(self.scan_error)
         self.scan_thread.start()
         self.cancel_button.setEnabled(True)
+        self.statusbar.showMessage("Status: Running scan...")
 
     def update_target(self):
         target = self.target_entry.text()
@@ -104,11 +113,11 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
         command = self.command_entry.text()
         command_parts = command.split()
         if len(command_parts) > 1:
-            if command_parts[0] != "nmap":
-                for i in range(len(command_parts)-1, -1, -1):
-                    if not command_parts[i].startswith('-'):
-                        self.target_entry.setText(command_parts[i])
-                        return
+            #if command_parts[0] != "nmap":
+            for i in range(len(command_parts)-1, -1, -1):
+                if not command_parts[i].startswith('-'):
+                    self.target_entry.setText(command_parts[i])
+                    return
         
     def update_command(self):
         profiles = {
@@ -123,17 +132,24 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
             "Quick traceroute": "-sn --traceroute",
             "Regular scan": "",
             "Slow comprehensive scan": "-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY -g 53 --script \"default or (discovery and safe)\"",
-            "Vulnerability Scan (Vulscan)": "--script=vulscan/vulscan.nse",
         }
 
-        profile = self.profile_combobox.currentText()
-        target = self.target_entry.text()
-
-        if profile in profiles:
-            arguments = profiles[profile]
-            if target is not None:
-                self.command_entry.setText(f"nmap {arguments} {target}")
+        vuln_scripts = {
+            "None": "",
+            "vulners": " -sV --script vulners --script-args mincvss=7.5",
+            "vulscan": " -sV --script ./scripts/vulscan.nse",
+            "httprecon": " -sV --script ./scripts/http-recon.nse"
+        }
         
+        target = self.target_entry.text()
+        profile = self.profile_combobox.currentText()
+        vuln_script = self.vuln_scripts_combobox.currentText()
+
+        if profile in profiles and vuln_script in vuln_scripts:
+            arguments = profiles[profile]
+            script = vuln_scripts[vuln_script]
+            self.command_entry.setText(f"nmap {arguments}{script} {target}")
+
     def cancel_scan(self):
         if self.scan_thread and self.scan_thread.isRunning():
             self.scan_thread.terminate()
@@ -148,6 +164,7 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
         self.nm = nm
         self.populate_ports_hosts_grid()
         self.cancel_button.setEnabled(False)
+        self.statusbar.showMessage("Status: Idle")
 
     def scan_error(self, error_message):
         self.nmap_output_text.appendPlainText("Scan aborted.")
