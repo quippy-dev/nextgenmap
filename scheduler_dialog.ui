@@ -41,7 +41,7 @@
    <property name="title">
     <string>Simple</string>
    </property>
-   <widget class="QRadioButton" name="radioButton">
+   <widget class="QRadioButton" name="hourly_radio">
     <property name="geometry">
      <rect>
       <x>20</x>
@@ -54,7 +54,7 @@
      <string>Hourly</string>
     </property>
    </widget>
-   <widget class="QRadioButton" name="radioButton_2">
+   <widget class="QRadioButton" name="daily_radio">
     <property name="geometry">
      <rect>
       <x>100</x>
@@ -67,7 +67,7 @@
      <string>Daily</string>
     </property>
    </widget>
-   <widget class="QRadioButton" name="radioButton_3">
+   <widget class="QRadioButton" name="weekly_radio">
     <property name="geometry">
      <rect>
       <x>180</x>
@@ -93,7 +93,7 @@
    <property name="title">
     <string>Advanced</string>
    </property>
-   <widget class="QTextEdit" name="cron_command">
+   <widget class="QTextEdit" name="cron_schedule">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -116,7 +116,7 @@
    <property name="title">
     <string>Basic</string>
    </property>
-   <widget class="QComboBox" name="comboBox">
+   <widget class="QComboBox" name="min_cbox">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -141,7 +141,7 @@
      <string>Min</string>
     </property>
    </widget>
-   <widget class="QComboBox" name="comboBox_2">
+   <widget class="QComboBox" name="hour_cbox">
     <property name="geometry">
      <rect>
       <x>70</x>
@@ -160,7 +160,7 @@
      <string>Hour</string>
     </property>
    </widget>
-   <widget class="QComboBox" name="comboBox_3">
+   <widget class="QComboBox" name="date_cbox">
     <property name="geometry">
      <rect>
       <x>130</x>
@@ -179,7 +179,7 @@
      <string>Date</string>
     </property>
    </widget>
-   <widget class="QComboBox" name="comboBox_4">
+   <widget class="QComboBox" name="month_cbox">
     <property name="geometry">
      <rect>
       <x>190</x>
@@ -198,7 +198,7 @@
      <string>Month</string>
     </property>
    </widget>
-   <widget class="QComboBox" name="comboBox_5">
+   <widget class="QComboBox" name="day_cbox">
     <property name="geometry">
      <rect>
       <x>260</x>
