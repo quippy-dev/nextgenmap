@@ -7,6 +7,7 @@ from nextgenmap_ui import Ui_MainWindow
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
+import nmap
 from nmap import PortScanner, PortScannerError
 
 class NmapScanThread(QThread):
@@ -57,8 +58,8 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
         self.init_ui()
 
     def init_ui(self):
-        self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", 
-                                        "Quick scan plus", "Quick traceroute", "Regular scan", "Slow comprehensive scan"])
+        self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", "Vulnerability Scan (Vulscan)", "Intense Comprehensive Scan",
+                                        "Quick scan plus", "Quick traceroute", "Regular scan", "Slow comprehensive scan", "TCP SYN Scan", "UDP SYN Scan", "Intense Scan, no Ping, Agressive"])
         self.scan_button.clicked.connect(self.start_scan)
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel_scan)
@@ -109,17 +110,88 @@ class NextGeNmapGUI(QMainWindow, Ui_MainWindow):
                         self.target_entry.setText(command_parts[i])
                         return
                 
+    def run_scan(self, target, profile):
+        #target ip
+        target = self.target_entry.get()
+
+        #scan type
+        profile = self.profile_var.get()
+
+        #nm.csv() THIS IS TO GET THE CSV OUTPUT STEP 1
+        #nm.csv_parser THIS IS HOW WE CAN PARSE THE OUTPUT OF EACH SCAN
+        
+        nm = nmap.PortScanner()
+        if profile == "Ping Scan":
+            nm.scan(target, arguments="-sn")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Quick Scan":
+            nm.scan(target, arguments="-T4 -F")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Quick Traceroute":
+            nm.scan(target, arguments="-sn --traceroute")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Regular Scan":
+            nm.scan(target, arguments="")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "TCP Scan":
+            nm.scan(target, arguments="-sT")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "UDP scan":
+            nm.scan(target, arguments="-sU")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "TCP SYN scan":
+            nm.scan(target, arguments="-sS")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "UDP SYN Scan":
+            nm.scan(target, arguments="-sU -sY")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Vulnerability Scan (Vulscan)":
+            nm.scan(target, arguments="--script=vulscan/vulscan.nse")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Slow Comprehensive Scan":    
+            nm.scan(target, arguments="-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY --script 'default or (discovery and safe)'")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Intense Comprehensive Scan":
+            nm.scan(target, arguments="-p 1-65535 -T4 -A -v -PE -PP -PS80,443,21,22,25,3389 -PA3389 -PU40125 -PY -g 53 --script 'default or (discovery and safe)'")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Intense Scan, no Ping":
+            nm.scan(target, arguments="-T4 -A -v -Pn")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        elif profile == "Intense Scan, no Ping, Agressive":
+            nm.scan(target, arguments="-T4 -A -v -Pn --script 'default or (discovery and safe)'")
+            return nm.all_hosts(), nm.scaninfo()
+        
+        else:
+            nm.scan(target)
+            #csv_output THIS IS TO GET THE CSV OUTPUT STEP 2
+            return nm.all_hosts(), nm.scaninfo()
+        
     def update_command(self):
         profiles = {
             "Intense scan": "-T4 -A -v",
             "Intense scan, all TCP ports": "-p 1-65535 -T4 -A -v",
             "Intense scan, no ping": "-T4 -A -v -Pn",
+            "Intense Scan, no Ping, Agressive": "-T4 -A -v -Pn --script 'default or (discovery and safe)'",
+            "Intense Comprehensive Scan": "-p 1-65535 -T4 -A -v -PE -PP -PS80,443,21,22,25,3389 -PA3389 -PU40125 -PY -g 53 --script 'default or (discovery and safe)'",
             "Ping scan": "-sn",
             "Quick scan": "-T4 -F",
             "Quick scan plus": "-sV -T4 -O -F --version-light",
             "Quick traceroute": "-sn --traceroute",
             "Regular scan": "",
-            "Slow comprehensive scan": "-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY -g 53 --script \"default or (discovery and safe)\""
+            "Slow comprehensive scan": "-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY -g 53 --script \"default or (discovery and safe)\"",
+            "Vulnerability Scan (Vulscan)": "--script=vulscan/vulscan.nse",
         }
 
         profile = self.profile_combobox.currentText()
