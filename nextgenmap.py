@@ -8,6 +8,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from PyQt6.uic import loadUi
 from nmap import PortScanner, PortScannerError
+from crontab import CronTab
 
 class NmapScanThread(QThread):
     output_received = pyqtSignal(str)
@@ -76,6 +77,14 @@ class NextGeNmapGUI(QMainWindow):
 
     def show_scheduler(self):
         self.scheduler_dialog.exec()
+        
+    def schedule_scan(self):
+        command = self.command_entry.text()
+        cron_time = "0 * * * *" #hourly
+        user_cron = CronTab(user=True)
+        job = user_cron.new(command=f'{command}| tee -a scan.txt', comment='nextgeNmap scheduled scan')
+        job.setall(cron_time)
+        user_cron.write()
 
     def start_scan(self):
         if self.scan_thread and self.scan_thread.isRunning():
