@@ -100,6 +100,9 @@
       </item>
       <item>
        <widget class="QPushButton" name="cancel_button">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -338,11 +341,17 @@
        <layout class="QVBoxLayout" name="verticalLayout_3">
         <item>
          <widget class="QTableWidget" name="ports_hosts_table">
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
           <property name="rowCount">
            <number>0</number>
           </property>
           <property name="columnCount">
-           <number>6</number>
+           <number>7</number>
           </property>
           <column>
            <property name="text">
@@ -371,12 +380,22 @@
           </column>
           <column>
            <property name="text">
+            <string>Script Output</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
             <string>Version</string>
            </property>
           </column>
          </widget>
         </item>
        </layout>
+      </widget>
+      <widget class="QWidget" name="tab">
+       <attribute name="title">
+        <string>Help/Documentation</string>
+       </attribute>
       </widget>
      </widget>
     </item>
@@ -388,7 +407,7 @@
      <x>0</x>
      <y>0</y>
      <width>1037</width>
-     <height>22</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -397,12 +416,24 @@
     </property>
     <addaction name="actionExit"/>
    </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionToggle_Dark_Mode"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuView"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionExit">
    <property name="text">
     <string>Exit</string>
+   </property>
+  </action>
+  <action name="actionToggle_Dark_Mode">
+   <property name="text">
+    <string>Toggle Dark Mode</string>
    </property>
   </action>
  </widget>
