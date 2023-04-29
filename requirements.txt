@@ -1,4 +1,5 @@
 psutil==5.9.5
-PyQt6==6.4.2
-PyQt6_sip==13.4.1
+PyQt6==6.5.0
+PyQt6_sip==13.5.1
+python_crontab==2.7.1
 python_nmap==0.7.1
