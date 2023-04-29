@@ -1,59 +1,26 @@
 import sys
 import os
 import tempfile
-import subprocess
-import psutil
+import shlex
 import re
-from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog, QPushButton
+from PyQt6.QtCore import Qt, QProcess
 from PyQt6.QtGui import QTextCursor, QTextOption
 from PyQt6.uic import loadUi
 from nmap import PortScanner, PortScannerError
 from crontab import CronTab
 
-class NmapScanThread(QThread):
-    output_received = pyqtSignal(str)
-    scan_finished = pyqtSignal(PortScanner)
-    scan_error = pyqtSignal(str)
 
-    def __init__(self, target, arguments, parent=None):
+class VulnResultsDialog(QDialog):
+    def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
-        self.target = target
-        self.arguments = arguments
-        self.process = None
+        loadUi('vuln_dialog.ui', self)
+        self.main_window = main_window
+        self.init_ui()
 
-    def run(self):
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_filename = temp_file.name
+    def init_ui(self):
+        print("VulnResultsDialog init_ui")
 
-        self.output_received.emit(f"\tnmap {self.arguments} {self.target}\n")
-
-        command = f"nmap {self.arguments} -oX {temp_filename} {self.target}"
-        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
-        
-        while (line := self.process.stderr.readline()):
-            self.output_received.emit(line.strip())
-
-        while (line := self.process.stdout.readline()):
-            self.output_received.emit(line.strip())
-        
-        self.process.wait()
-        nm = PortScanner()
-        with open(temp_filename, 'r') as xml_file:
-            try:
-                nm.analyse_nmap_xml_scan(xml_file.read())
-                self.scan_finished.emit(nm)
-            except PortScannerError as e:
-                self.scan_error.emit(str(e))
-        os.remove(temp_filename)
-        self.process = None
-
-    def terminate(self):
-        if self.process:
-            process = psutil.Process(self.process.pid)
-            for child_proc in process.children(recursive=True):
-                child_proc.kill()
-            process.kill()
 
 class SchedulerDialog(QDialog):
     def __init__(self, parent=None, main_window=None):
@@ -89,8 +56,13 @@ class SchedulerDialog(QDialog):
         self.cron_schedule.textChanged.connect(self.parse_cron_schedule)
         self.update_cron_schedule()
 
+    def update_cbox_states(self, cron_text, cb_states, cb_indices):
+        for i, part in enumerate(cron_text.split()):
+            cb_states[i] = not any(c in part for c in ',/-')
+            cb_indices[i] = int(part) + 1 if part.isdigit() else 0
+            
     def parse_cron_schedule(self):
-        # Provide a preview of the cron schedule
+        # Provide a reference for the cron schedule
         guru_format = f"https://crontab.guru/#{self.cron_schedule.toPlainText().replace(' ', '_')}"
         self.guru_link.setText(f'<a href="{guru_format}"><span style="text-decoration:none;color:#007BFF;">{guru_format}</span></a>')
         
@@ -106,24 +78,20 @@ class SchedulerDialog(QDialog):
         if self.sender() and self.sender().hasFocus():
             self.toggling_custom_radio = True
             self.custom_radio.setChecked(True)
-            for cb in [self.min_cbox, self.hour_cbox, self.date_cbox, self.month_cbox, self.day_cbox]: cb.setEnabled(True)
+            for cb in [self.min_cbox, self.hour_cbox, self.date_cbox, self.month_cbox, self.day_cbox]:
+                cb.setEnabled(True)
             self.toggling_custom_radio = False
             return
 
-        minute, hour, date, month, day = cron_text.split()
+        cboxes = [self.min_cbox, self.hour_cbox, self.date_cbox, self.month_cbox, self.day_cbox]
+        cb_states = [True] * 5
+        cb_indices = [0] * 5
 
-        self.min_cbox.setCurrentIndex(int(minute)+1 if minute.isdigit() else 0)
-        self.hour_cbox.setCurrentIndex(int(hour)+1 if hour.isdigit() else 0)
-        self.date_cbox.setCurrentIndex(int(date)+1 if date.isdigit() else 0)
-        self.month_cbox.setCurrentIndex(int(month)+1 if month.isdigit() else 0)
-        self.day_cbox.setCurrentIndex(int(day)+1 if day.isdigit() else 0)
+        self.update_cbox_states(cron_text, cb_states, cb_indices)
 
-        self.min_cbox.setEnabled(',' not in minute and '/' not in minute and '-' not in minute)
-        self.hour_cbox.setEnabled(',' not in hour and '/' not in hour and '-' not in hour)
-        self.date_cbox.setEnabled(',' not in date and '/' not in date and '-' not in date)
-        self.month_cbox.setEnabled(',' not in month and '/' not in month and '-' not in month)
-        self.day_cbox.setEnabled(',' not in day and '/' not in day and '-' not in day)
-
+        for i, (cb, state, index) in enumerate(zip(cboxes, cb_states, cb_indices)):
+            cb.setEnabled(state)
+            cb.setCurrentIndex(index)
 
     def update_cron_schedule(self):
         # Return early if the sender is the QLineEdit cron_schedule or if toggling custom_radio due to parse_cron_schedule
@@ -164,21 +132,21 @@ class SchedulerDialog(QDialog):
             day = "0" if day == "*" else day
             self.cron_schedule.setPlainText(f"{minute} {hour} * * {day}")
         else:
-            # rgon3: look here! this is where you can read the cron expression for the scheduler
             cron_expression = f"{minute} {hour} {date} {month} {day}"
             self.cron_schedule.setPlainText(cron_expression)
 
         self.updating_cron_schedule = False
+
 
 class NextGeNmapGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         loadUi('nextgenmap.ui', self)
         self.init_ui()
-        self.nm = None
+        self.nmap_results = None
         self.scan_thread = None
         self.scheduler_dialog = SchedulerDialog(parent=self, main_window=self)
-        self.statusbar.showMessage("Status: Idle")
+        self.vuln_dialog = VulnResultsDialog(parent=self, main_window=self)
 
     def init_ui(self):
         self.profile_combobox.addItems(["Intense scan", "Intense scan, all TCP ports", "Intense scan, no ping", "Ping scan", "Quick scan", "Intense Comprehensive Scan",
@@ -186,20 +154,25 @@ class NextGeNmapGUI(QMainWindow):
         self.vuln_scripts_combobox.addItems(["None", "vulners", "http-vulners-regex", "vulscan", "httprecon"])
         self.update_command()
         self.scan_button.clicked.connect(self.start_scan)
-        self.cancel_button.setEnabled(False)
-        self.cancel_button.clicked.connect(self.cancel_scan)
-        self.target_entry.textChanged.connect(self.update_command)
-        self.target_entry.textChanged.connect(self.update_target)
+        self.cancel_button.clicked.connect(self.terminate_scan)
+        self.target_entry.textChanged.connect(lambda: (self.update_command(), self.update_target()))
         self.command_entry.textChanged.connect(self.update_target_from_command)
         self.profile_combobox.currentIndexChanged.connect(self.update_command)
         self.verbose_checkbox.stateChanged.connect(self.update_command)
         self.port_range_entry.textChanged.connect(self.update_command)
         self.vuln_scripts_combobox.currentIndexChanged.connect(self.update_command)
+        self.script_args_entry.textChanged.connect(self.update_command)
         self.schedule_button.clicked.connect(self.show_scheduler)
+        self.statusbar.showMessage("Status: Idle")
 
     def show_scheduler(self):
         self.scheduler_dialog.cron_preview.setPlainText(self.command_entry.text())
         self.scheduler_dialog.exec()
+        
+    def show_vulns(self, vuln_list):
+        self.vuln_dialog.vuln_tabs.setTabText(0, vuln_list[0])
+        self.vuln_dialog.output_list.addItems(vuln_list[1].splitlines())
+        self.vuln_dialog.exec()
         
     def schedule_scan(self):
         command = self.command_entry.text()
@@ -210,28 +183,48 @@ class NextGeNmapGUI(QMainWindow):
         user_cron.write()
 
     def start_scan(self):
-        if self.scan_thread and self.scan_thread.isRunning():
-            return
+        with tempfile.NamedTemporaryFile(delete=False) as temp_xml:
+            self.output_xml = temp_xml.name
 
-        command = self.command_entry.text().strip()
-        if not command:
-            return
+        self.process = QProcess()
+        self.process.readyReadStandardOutput.connect(self.handle_stdout)
+        self.process.readyReadStandardError.connect(self.handle_stderr)
+        self.process.finished.connect(self.scan_finished)
 
-        command_parts = command.split()
-        if len(command_parts) < 3 or command_parts[-1].startswith("-"):
-            return
-
-        target = command_parts.pop()
-        _ = command_parts.pop(0)
-        arguments = " ".join(command_parts)
-
-        self.scan_thread = NmapScanThread(target, arguments)
-        self.scan_thread.output_received.connect(self.update_output)
-        self.scan_thread.scan_finished.connect(self.scan_finished)
-        self.scan_thread.scan_error.connect(self.scan_error)
-        self.scan_thread.start()
+        #command = f"nmap {self.arguments} -oX {output_xml} {self.target}"
+        args = shlex.split(self.command_entry.text().strip())
+        args[-1:-1] = ["-oX", self.output_xml]
+        self.process.start(args[0], args[1:])
         self.cancel_button.setEnabled(True)
         self.statusbar.showMessage("Status: Running scan...")
+        print(args)
+
+    def handle_stdout(self):
+        data = self.process.readAllStandardOutput().data().decode()
+        self.update_output(data.strip())
+
+    def handle_stderr(self):
+        data = self.process.readAllStandardError().data().decode()
+        self.update_output(data.strip())
+
+    def scan_finished(self):
+        self.nmap_results = PortScanner()
+        with open(self.output_xml, 'r') as xml_file:
+            try:
+                self.nmap_results.analyse_nmap_xml_scan(xml_file.read())
+                self.populate_ports_hosts_grid()
+                self.cancel_button.setEnabled(False)
+                self.statusbar.showMessage("Status: Idle")
+            except PortScannerError as e:
+                self.scan_error(str(e))
+        os.remove(self.output_xml)
+        self.process = None
+
+    def terminate_scan(self):
+        if self.process:
+            #self.process.terminate()
+            self.process.kill()
+            self.process = None
 
     def update_target(self):
         target = self.target_entry.text()
@@ -271,6 +264,9 @@ class NextGeNmapGUI(QMainWindow):
             "Quick traceroute": "-sn --traceroute",
             "Regular scan": "",
             "Slow comprehensive scan": "-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY -g 53 --script \"default or (discovery and safe)\"",
+            "UDP SYN Scan": "-sU -sS -T4 -A -v --top-ports 200",
+            "TCP SYN Scan": "-sS -T4 -A -v --top-ports 200",
+            "Custom": ""
         }
 
         vuln_scripts = {
@@ -284,6 +280,10 @@ class NextGeNmapGUI(QMainWindow):
         target = self.target_entry.text()
         profile = self.profile_combobox.currentText()
         vuln_script = self.vuln_scripts_combobox.currentText()
+
+        self.vuln_scripts_combobox.currentIndexChanged.connect(self.update_command)
+        if self.sender() == self.vuln_scripts_combobox:
+            self.script_args_entry.setText("")
 
         if profile in profiles and vuln_script in vuln_scripts:
             arguments = profiles[profile]
@@ -309,55 +309,54 @@ class NextGeNmapGUI(QMainWindow):
 
             script = vuln_scripts[vuln_script]
             script_args = f" --script-args {self.script_args_entry.text()}" if self.script_args_entry.text() else ""
-            
             self.command_entry.setText(f"nmap {arguments}{script}{script_args} {target}")
-
-    def cancel_scan(self):
-        if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.terminate()
-            self.scan_thread.wait()
-            self.scan_thread = None
 
     def update_output(self, text):
         self.nmap_output_text.appendPlainText(text)
         self.nmap_output_text.moveCursor(QTextCursor.MoveOperation.End)
 
-    def scan_finished(self, nm):
-        self.nm = nm
-        self.populate_ports_hosts_grid()
-        self.cancel_button.setEnabled(False)
-        self.statusbar.showMessage("Status: Idle")
-
     def scan_error(self, error_message):
         self.nmap_output_text.appendPlainText("Scan aborted: {}".format(error_message))
 
     def populate_ports_hosts_grid(self):
+        self.ports_hosts_table.clearContents()
         self.ports_hosts_table.setRowCount(0)
         row_num = 0
-        for host in self.nm.all_hosts():
-            if self.nm[host].state() == "up":
-                for proto in self.nm[host].all_protocols():
-                    lport = self.nm[host][proto].keys()
+        for host in self.nmap_results.all_hosts():
+            if self.nmap_results[host].state() == "up":
+                for proto in self.nmap_results[host].all_protocols():
+                    lport = self.nmap_results[host][proto].keys()
                     for port in lport:
-                        status = self.nm[host][proto][port]["state"]
-                        service = self.nm[host][proto][port]["name"]
-                        version = self.nm[host][proto][port]["product"] + " " + self.nm[host][proto][port]["version"]
+                        status = self.nmap_results[host][proto][port]["state"]
+                        service = self.nmap_results[host][proto][port]["name"]
+                        version = self.nmap_results[host][proto][port]["product"] + " " + self.nmap_results[host][proto][port]["version"]
+
+                        script_list = []
+                        script_result_button = QPushButton(f"No Script Results")
+                        script_result_button.setEnabled(False)
+
+                        script_output = self.nmap_results[host][proto][port].get('script', {})
+                        if script_output:
+                            print(f"script_output: {script_output}")
+                            for script_name, output in script_output.items():
+                                print(f"Script: {script_name}")
+                                print(f"Output:\n{output}")
+                                if output:
+                                    script_list += [script_name, output]
+                                    script_result_button = QPushButton(f"Show Results: {script_name}")
+                                    script_result_button.setEnabled(True)
+                                    script_result_button.clicked.connect(lambda _, vl=script_list: self.show_vulns(vl))
                         self.ports_hosts_table.insertRow(row_num)
                         self.ports_hosts_table.setItem(row_num, 0, QTableWidgetItem("✓"))
                         self.ports_hosts_table.setItem(row_num, 1, QTableWidgetItem(str(port)))
                         self.ports_hosts_table.setItem(row_num, 2, QTableWidgetItem(proto))
                         self.ports_hosts_table.setItem(row_num, 3, QTableWidgetItem(status))
                         self.ports_hosts_table.setItem(row_num, 4, QTableWidgetItem(service))
-                        self.ports_hosts_table.setItem(row_num, 5, QTableWidgetItem(version))
-                        row_num += 1
+                        self.ports_hosts_table.setCellWidget(row_num, 5, script_result_button)
+                        self.ports_hosts_table.setItem(row_num, 6, QTableWidgetItem(version))
                         self.ports_hosts_table.resizeColumnsToContents()
+                        row_num += 1
 
-                        # mitch: look here! this is where you can add the script output to the table
-                        script_output = self.nm[host][proto][port].get('script', {})
-                        if script_output:
-                            for script_name, output in script_output.items():
-                                print(f"Script: {script_name}")
-                                print(f"Output:\n{output}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
