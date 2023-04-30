@@ -1,9 +1,9 @@
-import sys, os, tempfile, shlex, re
+import sys, os, tempfile, shlex, re, argparse, subprocess, psutil
 from math import floor
 from nmap import PortScanner, PortScannerError
 from crontab import CronTab
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog, QPushButton
-from PyQt6.QtCore import Qt, QProcess
+from PyQt6.QtCore import Qt, QProcess, QThread, pyqtSignal 
 from PyQt6.QtGui import QTextCursor, QTextOption, QStandardItemModel, QStandardItem
 from PyQt6.uic import loadUi
 
@@ -42,6 +42,9 @@ class SchedulerDialog(QDialog):
         self.updating_cron_schedule = False
         self.toggling_custom_radio = False
         self.init_ui()
+        if parent is not None:
+            self.buttonBox.accepted.connect(parent.schedule_scan) 
+        self.buttonBox.rejected.connect(self.reject)
 
     def init_ui(self):
         self.cboxes = [self.min_cbox, self.hour_cbox, self.date_cbox, self.month_cbox, self.day_cbox]
@@ -277,12 +280,16 @@ class NextGeNmapGUI(QMainWindow):
         self.vuln_dialog.exec()
         
     def schedule_scan(self):
-        command = self.command_entry.text()
-        cron_time = "0 * * * *" #hourly
-        user_cron = CronTab(user=True)
-        job = user_cron.new(command=f'{command}| tee -a scan.txt', comment='nextgeNmap scheduled scan')
-        job.setall(cron_time)
-        user_cron.write()
+        command_entry = self.scheduler_dialog.cron_preview.toPlainText()
+        python_path = sys.executable
+        script_path = os.path.abspath(__file__)
+        output_file = os.path.join(os.path.dirname(__file__), self.scheduler_dialog.xml_output.toPlainText())
+        command = f'{python_path} {script_path} --scan --command "{command_entry}" --output {output_file}'
+        cron_time = self.scheduler_dialog.cron_schedule.toPlainText() 
+        self.user_cron = CronTab(user=True)
+        self.job = self.user_cron.new(command, comment='nextgeNmap scheduled scan')
+        self.job.setall(cron_time)
+        self.user_cron.write()
 
     def update_output(self, text):
         self.nmap_output_text.appendPlainText(text)
@@ -469,9 +476,94 @@ class NextGeNmapGUI(QMainWindow):
                         row_num += 1
 
 
+class NmapScanThread(QThread):
+    #create and run an Nmap scan in a separate thread (in the background without starting any windows), 
+    #allowing your main application to continue running without being blocked by the scan.
+    output_received = pyqtSignal(str)
+    scan_finished = pyqtSignal(PortScanner)
+    scan_error = pyqtSignal(str)
+
+    def __init__(self, target, arguments, output_file, parent=None):
+        super().__init__(parent)
+        self.target = target
+        self.arguments = arguments
+        self.output_file = output_file
+        self.process = None
+
+    def run(self):
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_filename = temp_file.name
+
+        command = f"nmap {self.arguments} -oX {temp_filename} {self.target}"
+        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
+        
+        while (line := self.process.stdout.readline()):
+            self.output_received.emit(line.strip())
+        
+        self.process.wait()
+        nm = PortScanner()
+        with open(temp_filename, 'r') as xml_file:
+            try:
+                xml_scan = xml_file.read()
+                nm.analyse_nmap_xml_scan(xml_scan)
+                self.scan_finished.emit(nm)
+            except PortScannerError as e:
+                self.scan_error.emit(str(e))
+        
+         # Remove XML header and footer
+        xml_scan = re.sub(r'<\?xml.*?\?>', '', xml_scan)
+        xml_scan = re.sub(r'<nmaprun.*?>', '', xml_scan)
+        xml_scan = re.sub(r'</nmaprun>', '', xml_scan)
+
+        # Append scan results to the output file
+        with open(self.output_file, 'a') as output_file:
+            output_file.write(xml_scan)
+        
+        os.remove(temp_filename)
+        self.process = None
+
+    def terminate(self):
+        if self.process:
+            process = psutil.Process(self.process.pid)
+            for child_proc in process.children(recursive=True):
+                child_proc.kill()
+            process.kill()
+
+
+def cron_job_scan(command_entry, output_file):
+    args = shlex.split(command_entry.strip())
+    '''if len(args) < 3 or args[-1].startswith("-"):
+        print("Error: Invalid command format.")
+        return''' #GPT had this but is it necessary?
+
+    target = args.pop()
+    _ = args.pop(0)
+    arguments = " ".join(args)
+
+    scan_thread = NmapScanThread(target, arguments, output_file)
+
+    # Define the function to handle the output_received signal
+    def handle_output_received(output):
+        with open(output_file, 'a') as output_file_obj:
+            output_file_obj.write(output + '\n')
+
+    # Connect the output_received signal to the handle_output_received function
+    scan_thread.output_received.connect(handle_output_received)
+    scan_thread.start() # Start the NmapScanThread
+    scan_thread.wait() # Wait for the NmapScanThread to finish 
+
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle(QStyleFactory.create('Fusion'))
-    window = NextGeNmapGUI()
-    window.show()
-    sys.exit(app.exec())
+    parser = argparse.ArgumentParser(description='NextGeNmap')
+    parser.add_argument('--scan', action='store_true', help='Run scan in the background')
+    parser.add_argument('--command', type=str, help='Full command with target and arguments')
+    parser.add_argument('--output', type=str, help='Output file')
+    args = parser.parse_args()
+
+    if args.scan:
+        cron_job_scan(args.command, args.output)
+    else:
+        app = QApplication(sys.argv)
+        app.setStyle(QStyleFactory.create('Fusion'))
+        window = NextGeNmapGUI()
+        window.show()
+        sys.exit(app.exec())
