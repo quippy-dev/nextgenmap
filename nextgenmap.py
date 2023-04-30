@@ -4,24 +4,63 @@ from nmap import PortScanner, PortScannerError
 from crontab import CronTab
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog, QPushButton
 from PyQt6.QtCore import Qt, QProcess, QThread, pyqtSignal 
-from PyQt6.QtGui import QTextCursor, QTextOption, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QTextCursor, QTextOption, QStandardItemModel, QStandardItem, QColor, QTextCharFormat, QFont, QFontDatabase
 from PyQt6.uic import loadUi
 
-def append_items(model, items, is_separator=False):
-    for text in items:
-        item = QStandardItem(text)
-        if is_separator:
-            item.setData("separator", Qt.ItemDataRole.UserRole)
-            font = item.font()
-            #font.setBold(True)
-            item.setFont(font)
-        model.appendRow(item)
+
+class NmapProcess:
+    def __init__(self, command_entry, output_file, stdout_callback=None, stderr_callback=None, finished_callback=None, parent=None, from_cli=False):
+        self.command_entry = command_entry
+        self.output_file = output_file
+        self.process = None
+        self.stdout_callback = stdout_callback
+        self.stderr_callback = stderr_callback
+        self.finished_callback = finished_callback
+        self.from_cli = from_cli
+
+    def handle_stdout(self):
+        data = self.process.readAllStandardOutput().data().decode()
+        if self.stdout_callback:
+            self.stdout_callback(data, sender=self.process)
+
+    def handle_stderr(self):
+        data = self.process.readAllStandardError().data().decode()
+        if self.stderr_callback:
+            self.stderr_callback(data, sender=self.process)
+
+    def terminate(self):
+        if self.process:
+            self.process.terminate()
+
+    def run(self):
+        with tempfile.NamedTemporaryFile(delete=False) as temp_xml:
+            self.output_xml = temp_xml.name
+        args = shlex.split(self.command_entry)
+        print (args)
+        args[-1:-1] = ["-oX", self.output_xml]
+        print (args)
+        
+        self.process = QProcess()
+        if self.stdout_callback:
+            self.process.readyReadStandardOutput.connect(self.handle_stdout)
+        if self.stderr_callback:
+            self.process.readyReadStandardError.connect(self.handle_stderr)
+        if self.finished_callback:
+            self.process.finished.connect(lambda: self.finished_callback(self.output_file, self.output_xml, sender=self.process))
+            #self.process.finished.connect(lambda: self.finished_callback(self.output_xml, sender=self.process))
+
+        self.process.start(args[0], args[1:])
+
+        if self.from_cli:
+            self.process.waitForFinished(-1)
+
 
 class SeparatorStandardItemModel(QStandardItemModel):
     def flags(self, index):
         if self.itemFromIndex(index).data(Qt.ItemDataRole.UserRole) == "separator":
             return Qt.ItemFlag.NoItemFlags
         return super().flags(index)
+
 
 class VulnResultsDialog(QDialog):
     def __init__(self, parent=None, main_window=None):
@@ -185,7 +224,8 @@ class NextGeNmapGUI(QMainWindow):
                 "WordPress vulnerability scan", "Joomla vulnerability scan", "SMB vulnerabilities scan",
                 "SSL/TLS vulnerabilities scan", "DNS zone transfer scan", "SNMP vulnerabilities scan",
                 "NTP DDoS amplification scan", "Mail servers vulnerabilities scan", "Brute force FTP login",
-                "Brute force SSH login", "Brute force Telnet login", "Brute force RDP login", "Brute force HTTP login"
+                "Brute force SSH login", "Brute force Telnet login", "Brute force RDP login", "Brute force HTTP login",
+                "ALL scripts matching \"vuln\" category"
             ]
         }
 
@@ -208,7 +248,7 @@ class NextGeNmapGUI(QMainWindow):
             ## nextgeNmap profiles ##
             "EternalBlue scan": {"nmap_args": "-p 445 --script smb-vuln-ms17-010"},
             "Heartbleed scan": {"nmap_args": "-p 443 --script ssl-heartbleed"},
-            "Common web vulnerabilities scan": {"nmap_args": "-p 80,443 --script http-enum,http-vuln-cve2010-2861,http-vuln-cve2017-8917,http-vuln-cve2011-3192,http-vuln-cve2011-3368,http-vuln-cve2012-1823,http-vuln-cve2013-7091,http-vuln-cve2014-3704,http-vuln-cve2014-8877,http-vuln-cve2015-1427,http-vuln-cve2015-1635,http-vuln-cve2016-6662"},
+            "Common web vulnerabilities scan": {"nmap_args": "-p 80,443 --script http-enum,http-vuln-cve2010-2861,http-vuln-cve2017-8917,http-vuln-cve2011-3192,http-vuln-cve2011-3368,http-vuln-cve2012-1823,http-vuln-cve2013-7091,http-vuln-cve2014-3704,http-vuln-cve2014-8877,http-vuln-cve2015-1427,http-vuln-cve2015-1635"},
             "Drupal vulnerability scan": {"nmap_args": "-p 80,443 --script http-drupal-enum,http-drupal-enum-users"},
             "WordPress vulnerability scan": {"nmap_args": "-p 80,443 --script http-wordpress-enum,http-wordpress-brute,http-wordpress-plugins"},
             "Joomla vulnerability scan": {"nmap_args": "-p 80,443 --script http-joomla-enum-users,http-joomla-enum-config,http-joomla-brute"},
@@ -223,7 +263,7 @@ class NextGeNmapGUI(QMainWindow):
             "Brute force Telnet login": {"nmap_args": "-p 23 --script telnet-brute"},
             "Brute force RDP login": {"nmap_args": "-p 3389 --script rdp-ntlm-info,rdp-vuln-ms12-020"},
             "Brute force HTTP login": {"nmap_args": "-p 80,443 --script http-form-brute,http-get,http-post"},
-            "All default Nmap 'vuln' scripts": {"nmap_args": "-p 1-65535 --script vuln"},
+            "ALL scripts matching \"vuln\" category": {"nmap_args": "-p 1-65535 --script vuln"},
             }
 
         script_categories = {
@@ -291,9 +331,6 @@ class NextGeNmapGUI(QMainWindow):
         self.job.setall(cron_time)
         self.user_cron.write()
 
-    def update_output(self, text):
-        self.nmap_output_text.appendPlainText(text)
-        self.nmap_output_text.moveCursor(QTextCursor.MoveOperation.End)
 
     def update_progress(self, text):
         # Parse the output to get progress and ETC
@@ -310,14 +347,100 @@ class NextGeNmapGUI(QMainWindow):
             remaining_time = etc_match.group(2)
             self.statusbar.showMessage(f"Estimated time: {etc_time} (about {remaining_time} remaining)")
 
-    def handle_stdout(self):
-        data = self.nmap_process.readAllStandardOutput().data().decode()
-        self.update_output(data.strip())
+    def apply_highlight_rules(self, text):
+        cursor = self.nmap_output_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        cursor.insertText(text)
+
+        highlight_rules = { # thank you Zenmap for the regexes ~
+            "date": {
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "text": [0, 0, 0],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s.{1,4}" },
+            "hostname": {
+                "bold": True,
+                "italic": True,
+                "underline": True,
+                "text": [0, 111, 65535],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"(\w{2,}://)*[\w-]+(\.[\w-]+)+"},
+            "ip": {
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "text": [0, 0, 0],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"},
+            "port_list": {
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "text": [0, 1272, 28362],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"PORT\s+STATE\s+SERVICE(\s+VERSION)?[^\n]*"},
+            "open_port": {
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "text": [0, 41036, 2396],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"\d{1,5}/.{1,5}\s+open\s+.*"},
+            "closed_port": {
+                "bold": False,
+                "italic": False,
+                "underline": False,
+                "text": [65535, 0, 0],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"\d{1,5}/.{1,5}\s+closed\s+.*"},
+            "filtered_port": {
+                "bold": False,
+                "italic": False,
+                "underline": False,
+                "text": [38502, 39119, 0],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"\d{1,5}/.{1,5}\s+filtered\s+.*"},
+            "details": {
+                "bold": True,
+                "italic": False,
+                "underline": True,
+                "text": [0, 0, 0],
+                "highlight": [65535, 65535, 65535],
+                "regex": r"^(\w{2,}[\s]{,3}){,4}:"}
+        }
+
+        for rule_name in highlight_rules:
+            rule = highlight_rules[rule_name]
+            regex = rule["regex"]
+            pattern = re.compile(regex, re.MULTILINE)
+
+            for match in pattern.finditer(self.nmap_output_text.toPlainText()):
+                start = match.start()
+                end = match.end()
+
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+
+                format = QTextCharFormat()
+                format.setFontWeight(QFont.Weight.Bold if rule["bold"] else QFont.Weight.Normal)
+                #format.setFontItalic(rule["italic"])
+                format.setFontUnderline(rule["underline"])
+                format.setForeground(QColor(rule["text"][0]//257, rule["text"][1]//257, rule["text"][2]//257))
+                #format.setBackground(QColor(rule["highlight"][0]//257, rule["highlight"][1]//257, rule["highlight"][2]//257))
+                cursor.setCharFormat(format)
+                cursor.clearSelection()
+
+    def handle_stdout(self, data, sender=None):
+        self.apply_highlight_rules(data)
         self.update_progress(data.strip())
 
-    def handle_stderr(self):
-        data = self.nmap_process.readAllStandardError().data().decode()
-        self.update_output(data.strip())
+    def handle_stderr(self, data, sender=None):
+        self.apply_highlight_rules(data)
+        # self.nmap_output_text.append(data.strip())
+        # self.nmap_output_text.moveCursor(QTextCursor.MoveOperation.End)
 
     def terminate_scan(self):
         if self.nmap_process:
@@ -329,37 +452,26 @@ class NextGeNmapGUI(QMainWindow):
         self.statusbar.showMessage("Status: Idle")
             
     def scan_error(self, error_message):
-        self.nmap_output_text.appendPlainText("Scan aborted!") # {}".format(error_message))
+        self.nmap_output_text.append("Scan aborted!") # {}".format(error_message))
         self.terminate_scan()
 
-    def scan_finished(self):
+    def scan_finished(self, output_file, output_xml, sender=None):
         self.nmap_results = PortScanner()
-        with open(self.output_xml, 'r') as xml_file:
+        with open(output_xml, 'r') as xml_file:
             try:
                 self.nmap_results.analyse_nmap_xml_scan(xml_file.read())
                 self.populate_ports_hosts_grid()
             except PortScannerError as e:
                 self.scan_error(str(e))
-        os.remove(self.output_xml)
+        os.remove(output_xml)
         self.terminate_scan()
 
     def start_scan(self):
-        with tempfile.NamedTemporaryFile(delete=False) as temp_xml:
-            self.output_xml = temp_xml.name
-
-        self.nmap_process = QProcess()
-        self.nmap_process.readyReadStandardOutput.connect(self.handle_stdout)
-        self.nmap_process.readyReadStandardError.connect(self.handle_stderr)
-        self.nmap_process.errorOccurred.connect(self.scan_error)
-        self.nmap_process.finished.connect(self.scan_finished)
-
-        args = shlex.split(self.command_entry.text().strip())
-        args[-1:-1] = ["-oX", self.output_xml]
-        self.nmap_process.start(args[0], args[1:])
+        self.nmap_process = NmapProcess(self.command_entry.text().strip(), output_file=None, stdout_callback=self.handle_stdout, stderr_callback=self.handle_stderr, finished_callback=self.scan_finished)
+        self.nmap_process.run()
         self.scan_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.statusbar.showMessage("Status: Running scan...")
-        print(args)
 
     def update_target(self):
         target = self.target_entry.text()
@@ -475,82 +587,23 @@ class NextGeNmapGUI(QMainWindow):
                         self.ports_hosts_table.resizeColumnsToContents()
                         row_num += 1
 
+def append_items(model, items, is_separator=False):
+    for text in items:
+        item = QStandardItem(text)
+        if is_separator:
+            item.setData("separator", Qt.ItemDataRole.UserRole)
+            font = item.font()
+            #font.setBold(True)
+            item.setFont(font)
+        model.appendRow(item)
 
-class NmapScanThread(QThread):
-    #create and run an Nmap scan in a separate thread (in the background without starting any windows), 
-    #allowing your main application to continue running without being blocked by the scan.
-    output_received = pyqtSignal(str)
-    scan_finished = pyqtSignal(PortScanner)
-    scan_error = pyqtSignal(str)
+def cron_finished(output_file, output_xml, sender=None):
+    with open(output_xml, 'r') as temp_xml: input_xml = temp_xml.read()
+    input_xml = re.sub(r'<\?xml.*?\?>', '', input_xml, count=1)
+    input_xml = re.sub(r'<nmaprun.*?>', '', input_xml, count=1)
+    input_xml = re.sub(r'</nmaprun>', '', input_xml, count=1)
+    with open(output_file, 'a') as final_report: final_report.write(input_xml)
 
-    def __init__(self, target, arguments, output_file, parent=None):
-        super().__init__(parent)
-        self.target = target
-        self.arguments = arguments
-        self.output_file = output_file
-        self.process = None
-
-    def run(self):
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_filename = temp_file.name
-
-        command = f"nmap {self.arguments} -oX {temp_filename} {self.target}"
-        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
-        
-        while (line := self.process.stdout.readline()):
-            self.output_received.emit(line.strip())
-        
-        self.process.wait()
-        nm = PortScanner()
-        with open(temp_filename, 'r') as xml_file:
-            try:
-                xml_scan = xml_file.read()
-                nm.analyse_nmap_xml_scan(xml_scan)
-                self.scan_finished.emit(nm)
-            except PortScannerError as e:
-                self.scan_error.emit(str(e))
-        
-         # Remove XML header and footer
-        xml_scan = re.sub(r'<\?xml.*?\?>', '', xml_scan)
-        xml_scan = re.sub(r'<nmaprun.*?>', '', xml_scan)
-        xml_scan = re.sub(r'</nmaprun>', '', xml_scan)
-
-        # Append scan results to the output file
-        with open(self.output_file, 'a') as output_file:
-            output_file.write(xml_scan)
-        
-        os.remove(temp_filename)
-        self.process = None
-
-    def terminate(self):
-        if self.process:
-            process = psutil.Process(self.process.pid)
-            for child_proc in process.children(recursive=True):
-                child_proc.kill()
-            process.kill()
-
-
-def cron_job_scan(command_entry, output_file):
-    args = shlex.split(command_entry.strip())
-    '''if len(args) < 3 or args[-1].startswith("-"):
-        print("Error: Invalid command format.")
-        return''' #GPT had this but is it necessary?
-
-    target = args.pop()
-    _ = args.pop(0)
-    arguments = " ".join(args)
-
-    scan_thread = NmapScanThread(target, arguments, output_file)
-
-    # Define the function to handle the output_received signal
-    def handle_output_received(output):
-        with open(output_file, 'a') as output_file_obj:
-            output_file_obj.write(output + '\n')
-
-    # Connect the output_received signal to the handle_output_received function
-    scan_thread.output_received.connect(handle_output_received)
-    scan_thread.start() # Start the NmapScanThread
-    scan_thread.wait() # Wait for the NmapScanThread to finish 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='NextGeNmap')
@@ -560,7 +613,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.scan:
-        cron_job_scan(args.command, args.output)
+        try:
+            cron_scan = NmapProcess(args.command, args.output, finished_callback=cron_finished, from_cli=True)
+            cron_scan.run()
+        except Exception as e:
+            print(f"Failed to start scan: {e}")
     else:
         app = QApplication(sys.argv)
         app.setStyle(QStyleFactory.create('Fusion'))
