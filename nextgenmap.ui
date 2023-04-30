@@ -344,9 +344,11 @@
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_2">
         <item>
-         <widget class="QPlainTextEdit" name="nmap_output_text">
-          <property name="readOnly">
-           <bool>true</bool>
+         <widget class="QTextEdit" name="nmap_output_text">
+          <property name="font">
+           <font>
+            <family>Consolas</family>
+           </font>
           </property>
          </widget>
         </item>
