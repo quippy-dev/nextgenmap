@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string notr="true">nextgeNmap</string>
+   <string notr="true">NextgeNmap</string>
   </property>
   <property name="windowIcon">
    <iconset theme="applications-utilities">
@@ -412,9 +412,19 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="tab">
+      <widget class="QWidget" name="help_tab">
        <attribute name="title">
-        <string>Help/Documentation</string>
+        <string>Help &amp;&amp; Documentation</string>
+       </attribute>
+      </widget>
+      <widget class="QWidget" name="settings_tab">
+       <attribute name="title">
+        <string>Settings &amp;&amp; Preferences</string>
+       </attribute>
+      </widget>
+      <widget class="QWidget" name="about_tab">
+       <attribute name="title">
+        <string>About &amp;&amp; Credits</string>
        </attribute>
       </widget>
      </widget>
@@ -442,6 +452,9 @@
      <width>1037</width>
      <height>21</height>
     </rect>
+   </property>
+   <property name="nativeMenuBar">
+    <bool>false</bool>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">

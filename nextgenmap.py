@@ -1,21 +1,24 @@
-import sys, os, tempfile, shlex, re, argparse, subprocess, psutil
+import sys, os, tempfile, shlex, re, argparse
 from math import floor
 from nmap import PortScanner, PortScannerError
 from crontab import CronTab
+from lxml import etree
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStyleFactory, QTableWidgetItem, QDialog, QPushButton
-from PyQt6.QtCore import Qt, QProcess, QThread, pyqtSignal 
-from PyQt6.QtGui import QTextCursor, QTextOption, QStandardItemModel, QStandardItem, QColor, QTextCharFormat, QFont, QFontDatabase
+from PyQt6.QtCore import Qt, QProcess
+from PyQt6.QtGui import QTextCursor, QTextOption, QStandardItemModel, QStandardItem, QColor, QTextCharFormat, QFont
 from PyQt6.uic import loadUi
 
 
 class NmapProcess:
-    def __init__(self, command_entry, output_file, stdout_callback=None, stderr_callback=None, finished_callback=None, parent=None, from_cli=False):
+    def __init__(self, command_entry, output_filename, stdout_callback=None, stderr_callback=None,
+                 finished_callback=None, generate_html=False, from_cli=False, parent=None):
         self.command_entry = command_entry
-        self.output_file = output_file
+        self.output_filename = output_filename
         self.process = None
         self.stdout_callback = stdout_callback
         self.stderr_callback = stderr_callback
         self.finished_callback = finished_callback
+        self.generate_html = generate_html
         self.from_cli = from_cli
 
     def handle_stdout(self):
@@ -46,8 +49,7 @@ class NmapProcess:
         if self.stderr_callback:
             self.process.readyReadStandardError.connect(self.handle_stderr)
         if self.finished_callback:
-            self.process.finished.connect(lambda: self.finished_callback(self.output_file, self.output_xml, sender=self.process))
-            #self.process.finished.connect(lambda: self.finished_callback(self.output_xml, sender=self.process))
+            self.process.finished.connect(lambda: self.finished_callback(self.output_filename, self.output_xml, self.generate_html, sender=self.process))
 
         self.process.start(args[0], args[1:])
 
@@ -65,18 +67,18 @@ class SeparatorStandardItemModel(QStandardItemModel):
 class VulnResultsDialog(QDialog):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
-        loadUi('vuln_dialog.ui', self)
+        loadUi('./res/vuln_dialog.ui', self)
         self.main_window = main_window
         self.init_ui()
 
     def init_ui(self):
-        print("VulnResultsDialog init_ui")
+        return
 
 
 class SchedulerDialog(QDialog):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
-        loadUi('scheduler_dialog.ui', self)
+        loadUi('./res/scheduler_dialog.ui', self)
         self.main_window = main_window
         self.updating_cron_schedule = False
         self.toggling_custom_radio = False
@@ -181,10 +183,10 @@ class SchedulerDialog(QDialog):
         self.updating_cron_schedule = False
 
 
-class NextGeNmapGUI(QMainWindow):
+class NextgeNmapGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        loadUi('nextgenmap.ui', self)
+        loadUi('./res/main.ui', self)
         self.actionExit.triggered.connect(lambda: QApplication.quit())
         self.profile_model = SeparatorStandardItemModel(self)
         self.script_model = SeparatorStandardItemModel(self)
@@ -219,7 +221,7 @@ class NextGeNmapGUI(QMainWindow):
                 "Ping scan", "Quick scan", "Intense Comprehensive Scan", "Quick scan plus", "Quick traceroute",
                 "Regular scan", "Slow comprehensive scan"
             ],
-            "nextgeNmap profiles": [
+            "NextgeNmap profiles": [
                 "EternalBlue scan", "Heartbleed scan", "Common web vulnerabilities scan", "Drupal vulnerability scan",
                 "WordPress vulnerability scan", "Joomla vulnerability scan", "SMB vulnerabilities scan",
                 "SSL/TLS vulnerabilities scan", "DNS zone transfer scan", "SNMP vulnerabilities scan",
@@ -245,7 +247,7 @@ class NextGeNmapGUI(QMainWindow):
             "Slow comprehensive scan": {"nmap_args": "-sS -sU -T4 -A -v -PE -PP -PS80,443 -PA3389 -PU40125 -PY -g 53 --script \"default or (discovery and safe)\""},
             "UDP SYN Scan": {"nmap_args": "-sU -sS -T4 -A -v --top-ports 200"},
             "TCP SYN Scan": {"nmap_args": "-sS -T4 -A -v --top-ports 200"},
-            ## nextgeNmap profiles ##
+            ## NextgeNmap profiles ##
             "EternalBlue scan": {"nmap_args": "-p 445 --script smb-vuln-ms17-010"},
             "Heartbleed scan": {"nmap_args": "-p 443 --script ssl-heartbleed"},
             "Common web vulnerabilities scan": {"nmap_args": "-p 80,443 --script http-enum,http-vuln-cve2010-2861,http-vuln-cve2017-8917,http-vuln-cve2011-3192,http-vuln-cve2011-3368,http-vuln-cve2012-1823,http-vuln-cve2013-7091,http-vuln-cve2014-3704,http-vuln-cve2014-8877,http-vuln-cve2015-1427,http-vuln-cve2015-1635"},
@@ -263,8 +265,8 @@ class NextGeNmapGUI(QMainWindow):
             "Brute force Telnet login": {"nmap_args": "-p 23 --script telnet-brute"},
             "Brute force RDP login": {"nmap_args": "-p 3389 --script rdp-ntlm-info,rdp-vuln-ms12-020"},
             "Brute force HTTP login": {"nmap_args": "-p 80,443 --script http-form-brute,http-get,http-post"},
-            "ALL scripts matching \"vuln\" category": {"nmap_args": "-p 1-65535 --script vuln"},
-            }
+            "ALL scripts matching \"vuln\" category": {"nmap_args": "-sV --script vuln"},
+        }
 
         script_categories = {
             "scip AG Scripts": [
@@ -323,14 +325,13 @@ class NextGeNmapGUI(QMainWindow):
         command_entry = self.scheduler_dialog.cron_preview.toPlainText()
         python_path = sys.executable
         script_path = os.path.abspath(__file__)
-        output_file = os.path.join(os.path.dirname(__file__), self.scheduler_dialog.xml_output.toPlainText())
-        command = f'{python_path} {script_path} --scan --command "{command_entry}" --output {output_file}'
+        output_filename = os.path.join(os.path.dirname(__file__), self.scheduler_dialog.xml_output.toPlainText())
+        command = f'{python_path} {script_path} --scan --html --command "{command_entry}" --output {output_filename}'
         cron_time = self.scheduler_dialog.cron_schedule.toPlainText() 
         self.user_cron = CronTab(user=True)
-        self.job = self.user_cron.new(command, comment='nextgeNmap scheduled scan')
+        self.job = self.user_cron.new(command, comment='NextgeNmap scheduled scan')
         self.job.setall(cron_time)
         self.user_cron.write()
-
 
     def update_progress(self, text):
         # Parse the output to get progress and ETC
@@ -455,7 +456,7 @@ class NextGeNmapGUI(QMainWindow):
         self.nmap_output_text.append("Scan aborted!") # {}".format(error_message))
         self.terminate_scan()
 
-    def scan_finished(self, output_file, output_xml, sender=None):
+    def scan_finished(self, output_filename, output_xml, generate_html, sender=None):
         self.nmap_results = PortScanner()
         with open(output_xml, 'r') as xml_file:
             try:
@@ -467,7 +468,7 @@ class NextGeNmapGUI(QMainWindow):
         self.terminate_scan()
 
     def start_scan(self):
-        self.nmap_process = NmapProcess(self.command_entry.text().strip(), output_file=None, stdout_callback=self.handle_stdout, stderr_callback=self.handle_stderr, finished_callback=self.scan_finished)
+        self.nmap_process = NmapProcess(self.command_entry.text().strip(), output_filename=None, stdout_callback=self.handle_stdout, stderr_callback=self.handle_stderr, finished_callback=self.scan_finished)
         self.nmap_process.run()
         self.scan_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
@@ -544,7 +545,7 @@ class NextGeNmapGUI(QMainWindow):
             command_list = self.remove_argument(command_list, "-p")
             command_list += ["-p", f"{port_range}"]
 
-        #command_list = [arg for arg in command_list if arg != "{target}"]
+        #command_list = [arg for arg in command_list if arg != "{target}"] # needs fixing I think
 
         self.command_entry.setText(" ".join(command_list + [target]))
 
@@ -593,34 +594,56 @@ def append_items(model, items, is_separator=False):
         if is_separator:
             item.setData("separator", Qt.ItemDataRole.UserRole)
             font = item.font()
-            #font.setBold(True)
+            font.setBold(True)
+            item.setForeground(QColor(0, 123, 255))
+            #item.setBackground(QColor(0, 0, 0))
             item.setFont(font)
         model.appendRow(item)
 
-def cron_finished(output_file, output_xml, sender=None):
-    with open(output_xml, 'r') as temp_xml: input_xml = temp_xml.read()
-    input_xml = re.sub(r'<\?xml.*?\?>', '', input_xml, count=1)
-    input_xml = re.sub(r'<nmaprun.*?>', '', input_xml, count=1)
-    input_xml = re.sub(r'</nmaprun>', '', input_xml, count=1)
-    with open(output_file, 'a') as final_report: final_report.write(input_xml)
+def cron_finished(output_filename, output_xml, generate_html, sender=None):
+
+    # Read our temporary XML file into memory
+    with open(output_xml, 'r') as f: raw_xml = f.read();
+
+    # If we don't want to generate HTML, just save the XML and return
+    if not generate_html:
+        open(output_filename, 'w').write(raw_xml)
+        return
+
+    # Load the XSL stylesheet
+    with open('./res/nmap-bootstrap.xsl', 'r') as f: xsl = f.read()
+
+    # Parse the XML and XSL strings into etree objects
+    xml_root = etree.fromstring(raw_xml.encode())
+    xsl_root = etree.fromstring(xsl.encode())
+
+    # Create an XSLT transformer
+    transformer = etree.XSLT(xsl_root)
+
+    # Apply the transformation to the XML
+    html_root = transformer(xml_root)
+
+    # Save the HTML output
+    with open(output_filename, 'w') as final_report: final_report.write(str(html_root))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='NextGeNmap')
-    parser.add_argument('--scan', action='store_true', help='Run scan in the background')
-    parser.add_argument('--command', type=str, help='Full command with target and arguments')
-    parser.add_argument('--output', type=str, help='Output file')
+    parser = argparse.ArgumentParser(description='NextgeNmap')
+    parser.add_argument('--scan', action='store_true', help='Run a scan with no GUI')
+    parser.add_argument('--command', type=str, help='Full nmap command with target and arguments')
+    parser.add_argument('--html', action='store_true', default=False, help='Output report in HTML format')
+    parser.add_argument('--output-file', type=str, help='Output filename')
     args = parser.parse_args()
 
     if args.scan:
         try:
-            cron_scan = NmapProcess(args.command, args.output, finished_callback=cron_finished, from_cli=True)
+            cron_scan = NmapProcess(args.command, args.output_file, finished_callback=cron_finished, generate_html=args.html, from_cli=True)
             cron_scan.run()
         except Exception as e:
             print(f"Failed to start scan: {e}")
     else:
         app = QApplication(sys.argv)
         app.setStyle(QStyleFactory.create('Fusion'))
-        window = NextGeNmapGUI()
+        window = NextgeNmapGUI()
         window.show()
         sys.exit(app.exec())
