@@ -77,6 +77,19 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="currentIndex">
+         <number>1</number>
+        </property>
+        <item>
+         <property name="text">
+          <string>-- Zenmap Default Profiles --</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Intense Scan</string>
+         </property>
+        </item>
        </widget>
       </item>
       <item>
@@ -214,6 +227,11 @@
         <property name="sizeAdjustPolicy">
          <enum>QComboBox::AdjustToContents</enum>
         </property>
+        <item>
+         <property name="text">
+          <string>None</string>
+         </property>
+        </item>
        </widget>
       </item>
       <item>
@@ -399,6 +417,19 @@
       </widget>
      </widget>
     </item>
+    <item>
+     <widget class="QProgressBar" name="nmap_progress">
+      <property name="maximum">
+       <number>100</number>
+      </property>
+      <property name="value">
+       <number>0</number>
+      </property>
+      <property name="format">
+       <string>~%p%</string>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -416,14 +447,7 @@
     </property>
     <addaction name="actionExit"/>
    </widget>
-   <widget class="QMenu" name="menuView">
-    <property name="title">
-     <string>View</string>
-    </property>
-    <addaction name="actionToggle_Dark_Mode"/>
-   </widget>
    <addaction name="menuFile"/>
-   <addaction name="menuView"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionExit">
