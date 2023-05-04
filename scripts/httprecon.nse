@@ -436,7 +436,8 @@ function in_array(array, find)
 end
 
 function read_from_file(file)
-	local filepath = nmap.fetchfile(file)
+--	local filepath = nmap.fetchfile(file)
+	local filepath = file
 
 	if not filepath then
 		stdnse.print_debug(1, "httprecon: File %s not found", file)
