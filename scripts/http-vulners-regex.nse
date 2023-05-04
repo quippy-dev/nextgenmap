@@ -80,7 +80,7 @@ function get_paths_from_file(filename)
   filename_full = nmap.fetchfile('nselib/data/' .. filename) 
   if not(filename_full) then
 	stdnse.debug1("No file found at nselib/data/%s, using local copy", filename)
-    filename_full = filename
+    filename_full = 'scripts/' .. filename
   end
 
   file = io.open(filename_full, "r")
@@ -130,7 +130,7 @@ action = function(host, port)
   local output = stdnse.output_table()
   local changed = false
   local paths_arg = stdnse.get_script_args(SCRIPT_NAME .. ".paths") or {}
-  local regex_filename = 'http-vulners-regex.json'
+  local regex_filename = 'scripts/http-vulners-regex.json'
   local regex_filename_full, file
   local cpe
   local response, status

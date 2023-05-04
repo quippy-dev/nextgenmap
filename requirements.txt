@@ -1,5 +1,5 @@
-psutil==5.9.5
+lxml==4.9.2
+python-crontab==2.7.1
+python-nmap==0.7.1
 PyQt6==6.5.0
-PyQt6_sip==13.5.1
-python_crontab==2.7.1
-python_nmap==0.7.1
+PyQt6-sip==13.5.1

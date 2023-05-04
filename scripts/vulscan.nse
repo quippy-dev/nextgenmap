@@ -324,7 +324,7 @@ function find_vulnerabilities(prod, ver, db)
 	local v_found			-- if a match could be found
 
 	-- Load database
-	local v_entries = read_from_file("scripts/vulscan/" .. db)
+	local v_entries = read_from_file("scripts/vulscan-db/" .. db)
 
 	-- Clean useless dataparts (speeds up search and improves accuracy)
 	prod = string.gsub(prod, " httpd", "")
@@ -484,8 +484,8 @@ end
 function read_from_file(file)
 	local filepath = nmap.fetchfile(file)
 
-	if filepath then
-		local f, err, _ = io.open(filepath, "r")
+	if file then
+		local f, err, _ = io.open(file, "r")
 		if not f then
 			stdnse.print_debug(1, "vulscan: Failed to open file" .. file)
 		end
