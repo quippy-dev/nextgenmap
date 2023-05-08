@@ -1,4 +1,4 @@
-# Form implementation generated from reading ui file 'd:\bootcamp-git\nextgenmap\nextgenmap\raw-res\main_window.ui'
+# Form implementation generated from reading ui file 'd:\projects\nextgenmap\raw-res\main_window.ui'
 #
 # Created by: PyQt6 UI code generator 6.5.0
 #
@@ -435,7 +435,7 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
         self.profile_combobox.setCurrentIndex(0)
-        self.tab_widget.setCurrentIndex(2)
+        self.tab_widget.setCurrentIndex(0)
         self.hosts_pages.setCurrentIndex(-1)
         self.documentation_toolbox.setCurrentIndex(2)
         self.documentation_toolbox.layout().setSpacing(7)
