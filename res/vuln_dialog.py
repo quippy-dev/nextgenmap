@@ -1,4 +1,4 @@
-# Form implementation generated from reading ui file 'd:\bootcamp-git\nextgenmap\nextgenmap\raw-res\vuln_dialog.ui'
+# Form implementation generated from reading ui file 'd:\projects\nextgenmap\raw-res\vuln_dialog.ui'
 #
 # Created by: PyQt6 UI code generator 6.5.0
 #

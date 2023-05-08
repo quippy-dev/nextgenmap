@@ -1,9 +1,8 @@
-import sys, os, re
+import sys, os
 from PyQt6.QtCore import QProcess, QIODevice, QTemporaryFile
-from PyQt6.QtGui import QTextCursor, QTextCharFormat, QFont, QColor
 
 script_name = os.path.basename(sys.modules['__main__'].__file__)
-script_dir = os.path.dirname(sys.modules['__main__'].__file__)
+script_dir = os.path.abspath(os.path.dirname(sys.modules['__main__'].__file__))
 
 
 class NmapProcess:
@@ -50,15 +49,18 @@ class NmapProcess:
         args = args[1:]  # Remove the first argument
         args = [arg.replace('"', '') for arg in strip_output_flags(args)]
 
-        custom_datadir = os.path.join(script_dir, 'data')
-        script_path = os.path.join(custom_datadir, 'scripts')
-
         # Check if --script argument is present
         script_arg_index = -1
         for i, arg in enumerate(args):
             if arg == '--script':
                 script_arg_index = i
                 break
+
+        # If --script is present, check the next argument and prepend the absolute path if necessary
+        if script_arg_index != -1 and script_arg_index + 1 < len(args):
+            next_arg = args[script_arg_index + 1]
+            if next_arg.startswith("scripts/"):
+                args[script_arg_index + 1] = os.path.join(script_dir, next_arg)
 
         self.process = QProcess()
         if self.stdout_callback:
@@ -201,90 +203,64 @@ def setup_profiles(self):
     }
 
 
-def apply_highlight_rules(self, text):
-    cursor = self.nmap_output_text.textCursor()
-    cursor.movePosition(QTextCursor.MoveOperation.End)
-    cursor.insertText(text)
-    # thank you Zenmap for the regexes ~
-    highlight_rules = {
-        "date": {
-            "bold": True,
-            "italic": False,
-            "underline": False,
-            "text": [0, 0, 0],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s.{1,4}"},
-        "hostname": {
-            "bold": True,
-            "italic": True,
-            "underline": True,
-            "text": [0, 111, 65535],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"(\w{2,}://)*[\w-]+(\.[\w-]+)+"},
-        "ip": {
-            "bold": True,
-            "italic": False,
-            "underline": False,
-            "text": [0, 0, 0],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"},
-        "port_list": {
-            "bold": True,
-            "italic": False,
-            "underline": False,
-            "text": [0, 1272, 28362],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"PORT\s+STATE\s+SERVICE(\s+VERSION)?[^\n]*"},
-        "open_port": {
-            "bold": True,
-            "italic": False,
-            "underline": False,
-            "text": [0, 41036, 2396],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"\d{1,5}/.{1,5}\s+open\s+.*"},
-        "closed_port": {
-            "bold": False,
-            "italic": False,
-            "underline": False,
-            "text": [65535, 0, 0],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"\d{1,5}/.{1,5}\s+closed\s+.*"},
-        "filtered_port": {
-            "bold": False,
-            "italic": False,
-            "underline": False,
-            "text": [38502, 39119, 0],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"\d{1,5}/.{1,5}\s+filtered\s+.*"},
-        "details": {
-            "bold": True,
-            "italic": False,
-            "underline": True,
-            "text": [0, 0, 0],
-            "highlight": [65535, 65535, 65535],
-            "regex": r"^(\w{2,}[\s]{,3}){,4}:"}
-    }
-
-    for rule_name in highlight_rules:
-        rule = highlight_rules[rule_name]
-        regex = rule["regex"]
-        pattern = re.compile(regex, re.MULTILINE)
-
-        for match in pattern.finditer(self.nmap_output_text.toPlainText()):
-            start = match.start()
-            end = match.end()
-
-            cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-
-            format = QTextCharFormat()
-            format.setFontWeight(QFont.Weight.Bold if rule["bold"] else QFont.Weight.Normal)
-            # format.setFontItalic(rule["italic"])
-            format.setFontUnderline(rule["underline"])
-            format.setForeground(QColor(rule["text"][0] // 257, rule["text"][1] // 257, rule["text"][2] // 257))
-            # format.setBackground(QColor(rule["highlight"][0]//257, rule["highlight"][1]//257, rule["highlight"][2]//257))
-            cursor.setCharFormat(format)
-            cursor.clearSelection()
+highlight_rules = {  # thank you Zenmap for the regexes ~
+    "date": {
+        "bold": True,
+        "italic": False,
+        "underline": False,
+        "text": [0, 0, 0],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s.{1,4}"},
+    "hostname": {
+        "bold": True,
+        "italic": True,
+        "underline": True,
+        "text": [0, 111, 65535],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"(\w{2,}://)*[\w-]+(\.[\w-]+)+"},
+    "ip": {
+        "bold": True,
+        "italic": False,
+        "underline": False,
+        "text": [0, 0, 0],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"},
+    "port_list": {
+        "bold": True,
+        "italic": False,
+        "underline": False,
+        "text": [0, 1272, 28362],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"PORT\s+STATE\s+SERVICE(\s+VERSION)?[^\n]*"},
+    "open_port": {
+        "bold": True,
+        "italic": False,
+        "underline": False,
+        "text": [0, 41036, 2396],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"\d{1,5}/.{1,5}\s+open\s+.*"},
+    "closed_port": {
+        "bold": False,
+        "italic": False,
+        "underline": False,
+        "text": [65535, 0, 0],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"\d{1,5}/.{1,5}\s+closed\s+.*"},
+    "filtered_port": {
+        "bold": False,
+        "italic": False,
+        "underline": False,
+        "text": [38502, 39119, 0],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"\d{1,5}/.{1,5}\s+filtered\s+.*"},
+    "details": {
+        "bold": True,
+        "italic": False,
+        "underline": True,
+        "text": [0, 0, 0],
+        "highlight": [65535, 65535, 65535],
+        "regex": r"^(\w{2,}[\s]{,3}){,4}:"}
+}
 
 
 exclude_args_dict = {

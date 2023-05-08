@@ -6,7 +6,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QTextOption
 from crontab import CronTab
 
 script_name = os.path.basename(sys.modules['__main__'].__file__)
-script_dir = os.path.dirname(sys.modules['__main__'].__file__)
+script_dir = os.path.abspath(os.path.dirname(sys.modules['__main__'].__file__))
 
 
 class SchedulerDialog(QDialog, Ui_SchedulerDialog):
@@ -56,6 +56,14 @@ class SchedulerDialog(QDialog, Ui_SchedulerDialog):
         if platform.system() == "Windows":
             self.install_cron_btn.setText("No Cron on Windows!")
             self.install_cron_btn.setEnabled(False)
+            for i in range(self.cron_gen_install_row.count()):
+                widget = self.cron_gen_install_row.itemAt(i).widget()
+                if widget is not None:
+                    widget.setEnabled(False)
+            for i in range(self.cron_radio_row.count()):
+                widget = self.cron_radio_row.itemAt(i).widget()
+                if widget is not None:
+                    widget.setEnabled(False)
 
     def apply_alert_settings(self):
         self.apply_alert_btn.setEnabled(False)

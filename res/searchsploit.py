@@ -1,5 +1,5 @@
 import json
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QProcess, QIODevice, QTemporaryFile
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QProcess, QIODevice, QTemporaryFile, QThreadPool, QRunnable, QMutex
 from PyQt6.QtWidgets import QWidget, QTreeView, QSplitter, QVBoxLayout, QLabel
 
 
@@ -36,16 +36,23 @@ class TreeItem:
 class CustomModel(QAbstractItemModel):
     def __init__(self, data, parent=None):
         super(CustomModel, self).__init__(parent)
-        self.root_item = TreeItem(("Host", "Type", "Title"))
+        self.root_item = TreeItem(("Host", "Type", "Title"))  # "Service",
         self.setup_model_data(data, self.root_item)
 
     def setup_model_data(self, data, parent):
         for item_data in data:
-            item_values = (item_data["host"], item_data["type"], item_data["title"])
+            item_values = (item_data["host"], item_data["type"], item_data["title"])  # item_data["service"],
             item = TreeItem(item_values, parent)
             parent.append_child(item)
             if "children" in item_data:
                 self.setup_model_data(item_data["children"], item)
+
+    # def setup_model_data(self, data, parent):
+    #     for item_data in data:
+    #         item = TreeItem(item_data, parent)
+    #         parent.append_child(item)
+    #         if "children" in item_data:
+    #             self.setup_model_data(item_data["children"], item)
 
     # Implementations for QAbstractItemModel
     def columnCount(self, parent=QModelIndex()):
@@ -117,7 +124,7 @@ class CustomModel(QAbstractItemModel):
         self.beginResetModel()
 
         # Clear the existing data
-        self.root_item = TreeItem(("Host", "Type", "Title"))
+        self.root_item = TreeItem(("Host", "Type", "Title"))  # "Service",
 
         # Set up the new data
         self.setup_model_data(data, self.root_item)
@@ -130,13 +137,48 @@ class CustomModel(QAbstractItemModel):
             return "Select an item to see details"
 
         item = index.internalPointer()
+        # details = f"Host: {item.data(0)}\nService: {item.data(1)}\n# of exploits: {item.data(2)}\n# of shellcodes: {item.data(3)}"
         details = f"Host: {item.data(0)}\ntype: {item.data(1)}\ntitle: {item.data(2)}"
         return details
 
 
-class SearchSploitTab(QWidget):
+class SearchSploitRunnable(QRunnable):
+    def __init__(self, host, service, output_file, finished_callback):
+        super().__init__()
+        self.host = host
+        self.service = service
+        self.finished_callback = finished_callback
+        self.output_file = output_file
+
+    def run(self):
+        searchsploit_process = QProcess()
+        searchsploit_process.setStandardOutputFile(self.output_file.fileName())
+
+        searchsploit_command = ["wsl", ["-d", "kali-linux", "-e", "searchsploit", "-t", self.service, "-j"]]
+        searchsploit_process.start(*searchsploit_command)
+        searchsploit_process.waitForFinished(-1)
+
+        # Read the JSON data from the temporary file
+        self.output_file.seek(0)
+        searchsploit_json_data = self.output_file.readAll().data().decode('utf-8')
+
+        # Parse the JSON data
+        try:
+            searchsploit_json = json.loads(searchsploit_json_data)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from searchsploit output: {e}")
+            searchsploit_json = None
+
+        self.finished_callback(self.host, searchsploit_json)
+
+
+class SearchSploitWidget(QWidget):
     def __init__(self, parent=None):
-        super(SearchSploitTab, self).__init__(parent)
+        super(SearchSploitWidget, self).__init__(parent)
+
+        self.thread_pool = QThreadPool()
+        self.finished_counter = 0
+        self.finished_counter_mutex = QMutex()
 
         # Create custom model and QTreeView with empty data
         self.model = CustomModel(data=[])
@@ -165,40 +207,15 @@ class SearchSploitTab(QWidget):
         details = self.model.get_item_details(index)
         self.details_view.setText(details)
 
-    def run_searchsploit(self, service, as_json=True, finished_callback=None):
-        searchsploit_process = QProcess()
+    def run_searchsploit(self, host, service, as_json=True, finished_callback=None):
         searchsploit_output_file = QTemporaryFile("XXXXXX_searchsploit_output.json")
         searchsploit_output_file.setAutoRemove(True)
         if not searchsploit_output_file.open(QIODevice.OpenModeFlag.ReadWrite | QIODevice.OpenModeFlag.Text):
             print("Could not open searchsploit output file")
             return
 
-        if finished_callback:
-            searchsploit_process.finished.connect(
-                lambda: finished_callback(self, searchsploit_output_file.fileName(), sender=searchsploit_process))
-
-        searchsploit_command = ["wsl", ["-d", "kali-linux", "-e", "searchsploit", "-t", service, "-j"]]
-        searchsploit_process.setStandardOutputFile(searchsploit_output_file.fileName())
-        searchsploit_process.start(*searchsploit_command)
-        searchsploit_process.waitForFinished(-1)
-
-        # Read the JSON data from the temporary file
-        searchsploit_output_file.seek(0)
-        searchsploit_json_data = searchsploit_output_file.readAll().data().decode('utf-8')
-
-        # Close and delete the temporary file
-        searchsploit_output_file.close()
-
-        # Parse the JSON data
-        if as_json:
-            try:
-                searchsploit_json = json.loads(searchsploit_json_data)
-                return searchsploit_json
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON from searchsploit output: {e}")
-                return None
-        else:
-            return searchsploit_json_data
+        searchsploit_runnable = SearchSploitRunnable(host, service, searchsploit_output_file, finished_callback)
+        self.thread_pool.start(searchsploit_runnable)
 
     def process_searchsploit_results(self, searchsploit_results, host):
         processed_results = []
@@ -249,20 +266,24 @@ class SearchSploitTab(QWidget):
 
     def run_searchsploit_on_services(self, services_to_search):
         self.searchsploit_results = {}
+
+        total_processes = sum(len(services) for services in services_to_search.values())
         data = []
+
+        def finished_callback(host, searchsploit_json):
+            nonlocal data
+            processed_results = self.process_searchsploit_results(searchsploit_json, host)
+            print(f"Finished running SearchSploit on {host}...\n")
+            data.extend(processed_results)
+
+            self.finished_counter_mutex.lock()
+            self.finished_counter += 1
+            all_finished = self.finished_counter >= total_processes
+            self.finished_counter_mutex.unlock()
+
+            if all_finished:
+                self.populate_data(data)
+
         for host, services in services_to_search.items():
             for service in services:
-                searchsploit_results = self.run_searchsploit(service, as_json=True)
-                processed_results = self.process_searchsploit_results(searchsploit_results, host)
-                print(f"processed_results: {processed_results}")
-                data.extend(processed_results)
-
-        # Proceed with populating the QTreeView using the self.searchsploit_results dictionary
-        self.populate_data(data)
-
-    def searchsploit_finished(self, searchsploit_output_file, sender=None):
-        print(f"Searchsploit finished! Output file: {searchsploit_output_file}")
-        with open(searchsploit_output_file, "r") as f:
-            searchsploit_data = json.load(f)
-        print(len(searchsploit_data))
-        f.close()
+                self.run_searchsploit(host, service, as_json=True, finished_callback=finished_callback)

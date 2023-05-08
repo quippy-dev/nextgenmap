@@ -2,24 +2,24 @@ import sys, os, re, argparse
 from math import floor
 from nmap import PortScanner
 from lxml import etree
-from PyQt6.QtCore import (Qt, QFile, QTextStream, QIODevice)
+from PyQt6.QtCore import (Qt, QFile, QTextStream, QIODevice, QTimer)
 from PyQt6.QtGui import (QIcon, QTextCursor, QStandardItemModel, QStandardItem,
-                         QColor, QTextCharFormat, QTextDocument)
+                         QColor, QTextCharFormat, QTextDocument, QFont)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QStyleFactory, QTableWidgetItem,
                              QDialog, QPushButton, QWidget, QVBoxLayout,
                              QTableWidget, QHBoxLayout, QAbstractItemView, QListWidget,
-                             QSplitter, QTextBrowser)
+                             QSplitter, QTextBrowser, QListWidgetItem)
 from res.main_resources import *
 from res.main_window import Ui_MainWindow
 from res.vuln_dialog import Ui_VulnsDialog
 from res.scheduler import SchedulerDialog
-from res.searchsploit import (SearchSploitTab)
-from res.nmap_utils import (NmapProcess, setup_profiles, apply_highlight_rules,
+from res.searchsploit import (SearchSploitWidget)
+from res.nmap_utils import (NmapProcess, setup_profiles, highlight_rules,
                             custom_split, remove_argument, exclude_args_dict)
 
 
 script_name = os.path.basename(sys.modules['__main__'].__file__)
-script_dir = os.path.dirname(sys.modules['__main__'].__file__)
+script_dir = os.path.abspath(os.path.dirname(sys.modules['__main__'].__file__))
 
 print(f"Script name: {script_name}")
 print(f"Script directory: {script_dir}")
@@ -46,7 +46,9 @@ def load_content_into_text_browser(text_browser, resource_path, is_html=False):
 
 def linkify(text):
     url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-    return url_pattern.sub(r'<a href="\g<0>">\g<0></a>', text)
+    lines = text.splitlines()
+    processed_lines = [url_pattern.sub(r'<a href="\g<0>">\g<0></a>', line) for line in lines]
+    return '<br>'.join(processed_lines)
 
 
 def cron_finished(output_filename, output_xml, generate_html, sender=None):
@@ -128,9 +130,11 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
         self.script_model = SeparatorStandardItemModel(self)
         self.scheduler_dialog = SchedulerDialog(parent=self, main_window=self)
         self.vuln_dialog = VulnResultsDialog(parent=self, main_window=self)
-        self.searchsploit_tab = SearchSploitTab(parent=self)
+        self.searchsploit = SearchSploitWidget(parent=self)
         self.nmap_results = None
         self.host_ports_tables = {}
+        self.buffered_output = ""
+        self.update_output_text()
         self.init_ui()
 
         # Load Markdown content from the resource file
@@ -141,7 +145,7 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
         # Load HTML content from the resource file
         load_content_into_text_browser(self.about_text_browser, ":/about.html", True)
 
-        self.tab_widget.insertTab(2, self.searchsploit_tab, "SearchSploit")
+        self.tab_widget.insertTab(2, self.searchsploit, "SearchSploit")
 
     def init_ui(self):
         setup_profiles(self)
@@ -189,17 +193,23 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
         self.vuln_dialog.vuln_tabs.clear()  # Clear existing tabs
         new_tab = QWidget()
         new_output_list = QListWidget()
+        new_output_list.setMaximumWidth(300)  # Set the maximum width of the list
+
         for i in range(0, len(vuln_list), 2):
             script_name = vuln_list[i]
-            # output = vuln_list[i + 1]
-            new_output_list.addItem(script_name)
+            item = QListWidgetItem(script_name)
+            new_output_list.addItem(item)
 
+        max_item_width = new_output_list.sizeHintForColumn(0)
         details_view = QTextBrowser()
         details_view.setHtml("Click on a script to view details")
         details_view.setOpenExternalLinks(True)
         splitter = QSplitter()
         splitter.addWidget(new_output_list)
         splitter.addWidget(details_view)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([max_item_width, 100])
 
         # Set up layout for the new tab
         layout = QVBoxLayout()
@@ -211,6 +221,46 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
         # Add the new tab to the vuln_tabs
         self.vuln_dialog.vuln_tabs.addTab(new_tab, self.profile_combobox.currentText() + " - " + self.target_entry.text())
         self.vuln_dialog.exec()
+
+    def update_output_text(self):
+        if self.buffered_output:
+            self.apply_highlight_rules(self.buffered_output)
+            self.update_progress(self.buffered_output)
+            self.buffered_output = ""
+        QTimer.singleShot(500, self.update_output_text)
+
+    def apply_highlight_rules(self, text):
+        cursor = self.nmap_output_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+
+        for rule_name in highlight_rules:
+            rule = highlight_rules[rule_name]
+            regex = rule["regex"]
+            pattern = re.compile(regex, re.MULTILINE)
+
+            for match in pattern.finditer(self.nmap_output_text.toPlainText()):
+                start = match.start()
+                end = match.end()
+
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+
+                format = QTextCharFormat()
+                format.setFontWeight(QFont.Weight.Bold if rule["bold"] else QFont.Weight.Normal)
+                # format.setFontItalic(rule["italic"])
+                format.setFontUnderline(rule["underline"])
+                format.setForeground(QColor(rule["text"][0] // 257, rule["text"][1] // 257, rule["text"][2] // 257))
+                # format.setBackground(QColor(rule["highlight"][0]//257, rule["highlight"][1]//257, rule["highlight"][2]//257))
+                cursor.setCharFormat(format)
+                cursor.clearSelection()
+
+        # Move the cursor to the end of the text
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        # Update the QTextEdit's cursor
+        self.nmap_output_text.setTextCursor(cursor)
+        # Scroll the view to make the cursor visible
+        self.nmap_output_text.ensureCursorVisible()
 
     def update_progress(self, text):
         # Parse the output to get progress and ETC
@@ -228,11 +278,10 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
             self.statusbar.showMessage(f"ETC: {etc_time} (about {remaining_time} remaining)")
 
     def handle_stdout(self, data, sender=None):
-        apply_highlight_rules(self, data)
-        self.update_progress(data.strip())
+        self.buffered_output += data
 
     def handle_stderr(self, data, sender=None):
-        apply_highlight_rules(self, data)
+        self.buffered_output += data
 
     def terminate_scan(self):
         if self.nmap_process:
@@ -256,10 +305,11 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
                 self.populate_ports_hosts_grid()
                 xml_root = etree.fromstring(xml_data.encode())
 
-                services_to_search = self.searchsploit_tab.get_services_to_search(xml_root)
+                services_to_search = self.searchsploit.get_services_to_search(xml_root)
                 for services in services_to_search.values():
-                    self.nmap_output_text.append(f"SearchSploit parameters: {services}\n")
-                self.searchsploit_tab.run_searchsploit_on_services(services_to_search)
+                    self.buffered_output += (f"Running SearchSploit on services: {services}...\n")
+                self.searchsploit.run_searchsploit_on_services(services_to_search)
+                self.buffered_output += "Finished running SearchSploit\n"
             except Exception as e:
                 print(str(e))
                 # self.scan_error(str(e))
@@ -267,6 +317,10 @@ class NextgeNmapGUI(QMainWindow, Ui_MainWindow):
         self.terminate_scan()
 
     def start_scan(self):
+        # Use a QTimer to start the scan in the event loop
+        QTimer.singleShot(0, self._start_scan)
+
+    def _start_scan(self):
         command = self.command_entry.text().strip()
         self.final_command_text.setText(command)
         self.nmap_process = NmapProcess(command, output_filename=None, stdout_callback=self.handle_stdout, stderr_callback=self.handle_stderr, finished_callback=self.scan_finished)

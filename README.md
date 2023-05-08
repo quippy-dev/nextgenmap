@@ -17,19 +17,45 @@ NextgeNmap is a comprehensive cross-platform GUI for Nmap with deep integrations
 
 ## Installation
 
-1. Clone the repository:
+**1. Ensure nmap is in your PATH so that it can be executed from anywhere:**
+
+*For Windows:*
+
+- Locate the folder where nmap.exe is installed, typically:
+  ```
+  C:\Program Files (x86)\Nmap\
+  ```
+- Press the Windows key and search for 'Environment Variables'.
+- Click on 'Edit the system environment variables'.
+- Click on 'Environment Variables...' in the System Properties window.
+- Under 'System variables', find 'Path' and click 'Edit...'.
+- Click 'New', and then add the path to the Nmap folder (e.g., `C:\Program Files (x86)\Nmap\`).
+- Click 'OK' to save the changes.
+
+*For Linux:*
+
+- Ensure Nmap is installed and available system-wide. This is usually the default behavior when installing Nmap using a package manager like `apt`, `yum`, or `pacman`.
+- If Nmap is installed locally or in a non-standard location, add the Nmap folder to your PATH in your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`):
+
+  ```
+  export PATH=$PATH:/path/to/nmap-folder
+  ```
+- Save the file and restart your terminal or run `source ~/.bashrc` (or the appropriate configuration file) to apply the changes.
+---
+
+**2. Clone the repository:**
 
 ```bash
 git clone https://github.com/quippy-dev/nextgenmap.git
 ```
 
-2. Navigate to the project directory:
+**3. Navigate to the project directory:**
 
 ```bash
 cd nextgenmap
 ```
 
-3. Install the required packages:
+**4. Install the required packages:**
 
 ```bash
 pip install -r requirements.txt
@@ -59,4 +85,6 @@ NextgeNmap is released under the [GPLv3 license](./LICENSE). All community proje
 
 ## Acknowledgements
 
-This project was created by quip, rgon3, and mitchjh1. We hope our efforts prove to be a useful resource for the community and contribute to its ongoing innovation in 2023 and beyond!
+We would like to express our gratitude to GitHub Copilot and OpenAI's GPT-4 for their invaluable assistance throughout the development process. While their guidance and suggestions undoubtedly made our work smoother and more efficient, we want to emphasize that the entire codebase was created from scratch by our team.
+
+GitHub Copilot and GPT-4 played a crucial role in providing inspiration, addressing questions, and suggesting solutions, which enabled us to develop a powerful and versatile tool. Their AI-driven expertise allowed us to explore the potential of our solution and contribute a valuable resource to the community. However, it is our team's hard work, dedication, and creativity that have ultimately shaped NextgeNmap into the innovative project it is today.
