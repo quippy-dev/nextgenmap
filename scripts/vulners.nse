@@ -99,8 +99,9 @@ function make_links(vulns)
       cvss = tonumber(vuln._source.cvss.score),
     }
 
-    -- NOTE[gmedian]: exploits seem to have cvss == 0, so print them anyway
-    if v.is_exploit or (v.cvss and mincvss <= v.cvss) then
+    -- (incorrect) NOTE[gmedian]: exploits seem to have cvss == 0, so print them anyway
+    -- NOTE[quip]: exploits now have a proper cvss from API, so filter them
+    if (v.cvss and mincvss <= v.cvss) then
       setmetatable(v, cve_meta)
       output[#output+1] = v
     end
