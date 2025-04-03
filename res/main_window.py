@@ -459,7 +459,7 @@ class Ui_MainWindow(object):
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.nmap_output_tab), _translate("MainWindow", "Nmap Output"))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.ports_hosts_tab), _translate("MainWindow", "Ports/Hosts"))
         self.label.setText(_translate("MainWindow", "SearchSploit command:"))
-        self.lineEdit.setText(_translate("MainWindow", "wsl -d kali-linux -e searchsploit"))
+        self.lineEdit.setText(_translate("MainWindow", "searchsploit"))
         self.pushButton_2.setText(_translate("MainWindow", "Update default Nmap scripts"))
         self.autoupdate_checkbox.setText(_translate("MainWindow", "Auto-update on launch"))
         self.pushButton.setText(_translate("MainWindow", "Update ExploitDB"))
