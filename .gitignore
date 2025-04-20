@@ -1,5 +1,6 @@
 __pycache__/
 .vscode/
+.code/
 .DS_Store
 *.zip
 raw-res/
