@@ -290,10 +290,23 @@ class SearchSploitWidget(QWidget):
             self.status_label.setStyleSheet("")
             return
 
-        self.status_label.setText(
-            "SearchSploit is not available. Install ExploitDB's searchsploit (macOS/Linux) "
-            "or ensure WSL with a Linux distro is configured on Windows."
-        )
+        if sys.platform.startswith("win"):
+            message = (
+                "SearchSploit is not available. Install ExploitDB's searchsploit or "
+                "ensure WSL with a Linux distro is configured on Windows."
+            )
+        elif sys.platform == "darwin":
+            message = (
+                "SearchSploit is not available. Install it via Homebrew "
+                "(brew install exploitdb) or set SEARCHSPLOIT_PATH."
+            )
+        else:
+            message = (
+                "SearchSploit is not available. Install ExploitDB's searchsploit and "
+                "ensure it is on your PATH."
+            )
+
+        self.status_label.setText(message)
         self.status_label.setStyleSheet("color: #d08770;")
 
     def populate_data(self, data):
