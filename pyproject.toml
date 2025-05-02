@@ -21,4 +21,7 @@ packages = ["nextgenmap", "res"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-res = ["*.xsl"]
+res = ["*"]
+
+[project.scripts]
+nextgenmap = "nextgenmap.app:main"

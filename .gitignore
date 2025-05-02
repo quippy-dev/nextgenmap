@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 *.zip
 raw-res/
+dist/
+build/
+*.egg-info/

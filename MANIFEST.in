@@ -1,0 +1,5 @@
+recursive-include res *
+include README.md
+include LICENSE
+include pyproject.toml
+include nextgenmap.py

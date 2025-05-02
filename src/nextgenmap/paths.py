@@ -8,14 +8,10 @@ ENTRYPOINT = PROJECT_ROOT / "nextgenmap.py"
 
 def _resolve_res_package_dir() -> Path | None:
     try:
-        import res  # type: ignore
+        import importlib.resources
+        return Path(str(importlib.resources.files("res")))
     except Exception:
         return None
-
-    res_file = getattr(res, "__file__", None)
-    if not res_file:
-        return None
-    return Path(res_file).resolve().parent
 
 
 RESOURCES_DIR = _resolve_res_package_dir() or (PROJECT_ROOT / "res")
